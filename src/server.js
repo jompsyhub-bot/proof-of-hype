@@ -79,9 +79,30 @@ async function route(req, res) {
   }
 
   if (req.method === "POST" && routePath === "/campaigns") {
+    const creator = requireSession(req);
     const body = await readJson(req);
-    const campaign = createCampaign(body);
+    const campaign = createCampaign(body, creator);
     sendJson(res, 201, campaign);
+    return;
+  }
+
+  if (req.method === "GET" && routePath === "/me") {
+    const creator = requireSession(req);
+    sendJson(res, 200, { creator });
+    return;
+  }
+
+  if (req.method === "POST" && routePath === "/auth/wallet/challenge") {
+    const body = await readJson(req);
+    const challenge = createAuthWalletChallenge(body.walletAddress);
+    sendJson(res, 201, { challenge });
+    return;
+  }
+
+  if (req.method === "POST" && routePath === "/auth/wallet/verify") {
+    const body = await readJson(req);
+    const result = await verifyWalletAuth(body);
+    sendJson(res, 200, result);
     return;
   }
 
@@ -274,9 +295,16 @@ function getSetupStatus() {
     {
       key: "database",
       label: "Persistent database",
-      configured: !IS_PRODUCTION || DB_PATH.includes("/data/") || DB_PATH.includes("\\data\\"),
+      configured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) || !IS_PRODUCTION || DB_PATH.includes("/data/") || DB_PATH.includes("\\data\\"),
       required: true,
-      detail: "SQLite needs a persistent disk on Render; Postgres/Supabase is recommended next."
+      detail: "Use Supabase/Postgres for production, or attach a persistent disk while migrating."
+    },
+    {
+      key: "supabase",
+      label: "Supabase/Postgres",
+      configured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY),
+      required: false,
+      detail: "Hosted database target for creator-owned campaigns and durable sessions."
     }
   ];
 
@@ -296,11 +324,39 @@ function requireAdmin(req) {
   if (provided !== ADMIN_TOKEN) throw httpError(401, "admin_token_required");
 }
 
+function requireSession(req) {
+  const creator = getSessionCreator(req);
+  if (!creator) throw httpError(401, "wallet_session_required");
+  return creator;
+}
+
+function getSessionCreator(req) {
+  const token = bearerToken(req.headers.authorization);
+  if (!token) return null;
+
+  const row = db.prepare(`
+    SELECT c.*
+    FROM sessions s
+    JOIN creators c ON c.id = s.creator_id
+    WHERE s.token_hash = ? AND s.revoked_at IS NULL AND s.expires_at > CURRENT_TIMESTAMP
+    LIMIT 1
+  `).get(hashToken(token));
+
+  return row ? formatCreator(row) : null;
+}
+
 function requireCampaignAccess(req, campaignId) {
   if (!campaignId) throw httpError(400, "campaign_id_required");
 
   const adminProvided = req.headers["x-admin-token"] || bearerToken(req.headers.authorization);
   if (ADMIN_TOKEN && adminProvided === ADMIN_TOKEN) return;
+
+  const sessionCreator = getSessionCreator(req);
+  if (sessionCreator) {
+    const row = db.prepare("SELECT creator_id FROM campaigns WHERE id = ?").get(campaignId);
+    if (!row) throw httpError(404, "campaign_not_found");
+    if (row.creator_id && row.creator_id === sessionCreator.id) return;
+  }
 
   const campaignToken = req.headers["x-campaign-token"];
   if (!campaignToken) throw httpError(401, "campaign_token_required");
@@ -355,6 +411,7 @@ function initDatabase() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS campaigns (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      creator_id INTEGER REFERENCES creators(id) ON DELETE SET NULL,
       owner_wallet TEXT NOT NULL,
       owner_token_hash TEXT,
       name TEXT NOT NULL,
@@ -395,6 +452,25 @@ function initDatabase() {
       message TEXT NOT NULL,
       expires_at TEXT NOT NULL,
       used_at TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS wallet_auth_challenges (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      wallet_address TEXT NOT NULL,
+      nonce TEXT NOT NULL UNIQUE,
+      message TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      used_at TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      creator_id INTEGER NOT NULL REFERENCES creators(id) ON DELETE CASCADE,
+      token_hash TEXT NOT NULL UNIQUE,
+      expires_at TEXT NOT NULL,
+      revoked_at TEXT,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -456,22 +532,26 @@ function initDatabase() {
   `);
 
   addColumnIfMissing("campaigns", "owner_token_hash", "TEXT");
+  addColumnIfMissing("campaigns", "creator_id", "INTEGER REFERENCES creators(id) ON DELETE SET NULL");
 }
 
-function createCampaign(body) {
+function createCampaign(body, creator = null) {
   const now = new Date();
   const startAt = body.startAt || now.toISOString();
   const endAt = body.endAt || new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
   const ownerToken = crypto.randomBytes(32).toString("base64url");
   const ownerTokenHash = hashToken(ownerToken);
 
-  requireFields(body, ["name", "tag", "tokenMint", "rewardPoolRaw", "ownerWallet"]);
+  requireFields(body, ["name", "tag", "tokenMint", "rewardPoolRaw"]);
+  const ownerWallet = creator?.walletAddress || body.ownerWallet;
+  if (!ownerWallet) throw httpError(400, "owner_wallet_required");
 
   const result = db.prepare(`
-    INSERT INTO campaigns (owner_wallet, owner_token_hash, name, tag, token_mint, launch_venue, dex_pool_address, reward_pool_raw, start_at, end_at, status)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO campaigns (creator_id, owner_wallet, owner_token_hash, name, tag, token_mint, launch_venue, dex_pool_address, reward_pool_raw, start_at, end_at, status)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
-    body.ownerWallet,
+    creator?.id || null,
+    ownerWallet,
     ownerTokenHash,
     body.name,
     normalizeTag(body.tag),
@@ -499,6 +579,7 @@ function getCampaign(id) {
 function formatCampaign(row) {
   return {
     id: row.id,
+    creatorId: row.creator_id,
     ownerWallet: row.owner_wallet,
     name: row.name,
     tag: row.tag,
@@ -526,6 +607,87 @@ function createCreator(body) {
     Number(body.trustScore || 50)
   );
   return getCreator(result.lastInsertRowid);
+}
+
+function createAuthWalletChallenge(walletAddress) {
+  if (!walletAddress) throw httpError(400, "wallet_address_required");
+
+  const nonce = crypto.randomBytes(20).toString("hex");
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+  const message = [
+    "Proof of Hype wallet sign-in",
+    `Wallet: ${walletAddress}`,
+    `Nonce: ${nonce}`,
+    `Expires: ${expiresAt}`
+  ].join("\n");
+
+  db.prepare(`
+    INSERT INTO wallet_auth_challenges (wallet_address, nonce, message, expires_at)
+    VALUES (?, ?, ?, ?)
+  `).run(walletAddress, nonce, message, expiresAt);
+
+  return { walletAddress, nonce, message, expiresAt };
+}
+
+async function verifyWalletAuth(body) {
+  requireFields(body, ["walletAddress", "message"]);
+
+  const challenge = db.prepare(`
+    SELECT * FROM wallet_auth_challenges
+    WHERE wallet_address = ? AND message = ? AND used_at IS NULL
+    ORDER BY created_at DESC
+    LIMIT 1
+  `).get(body.walletAddress, body.message);
+
+  if (!challenge) throw httpError(400, "wallet_auth_challenge_not_found");
+  if (new Date(challenge.expires_at).getTime() < Date.now()) throw httpError(400, "wallet_auth_challenge_expired");
+
+  let verified = false;
+  if (body.signature) {
+    verified = await verifySolanaSignature(body.walletAddress, body.message, body.signature, body.signatureEncoding || "base58");
+  } else if (ALLOW_UNVERIFIED_WALLET_BINDING) {
+    verified = true;
+  }
+
+  if (!verified) throw httpError(400, "wallet_signature_invalid");
+
+  db.prepare("UPDATE wallet_auth_challenges SET used_at = CURRENT_TIMESTAMP WHERE id = ?").run(challenge.id);
+  const creator = upsertCreatorByWallet(body.walletAddress, body.walletProvider || "phantom");
+  const session = createSession(creator.id);
+
+  return { creator, session };
+}
+
+function upsertCreatorByWallet(walletAddress, walletProvider) {
+  const existing = db.prepare("SELECT * FROM creators WHERE wallet_address = ?").get(walletAddress);
+  if (existing) {
+    db.prepare(`
+      UPDATE creators
+      SET wallet_provider = ?, wallet_verified_at = COALESCE(wallet_verified_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(walletProvider, existing.id);
+    return getCreator(existing.id);
+  }
+
+  const result = db.prepare(`
+    INSERT INTO creators (wallet_address, wallet_provider, wallet_verified_at, trust_score)
+    VALUES (?, ?, CURRENT_TIMESTAMP, 50)
+  `).run(walletAddress, walletProvider);
+
+  return getCreator(result.lastInsertRowid);
+}
+
+function createSession(creatorId) {
+  const token = crypto.randomBytes(32).toString("base64url");
+  const tokenHash = hashToken(token);
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+  db.prepare(`
+    INSERT INTO sessions (creator_id, token_hash, expires_at)
+    VALUES (?, ?, ?)
+  `).run(creatorId, tokenHash, expiresAt);
+
+  return { token, expiresAt };
 }
 
 function getCreator(id) {

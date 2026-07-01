@@ -34,14 +34,14 @@
   <main>
     <div>
       <h1>API Docs</h1>
-      <p>The production foundation exposes the core backend surface: campaigns, creator binding, ingestion, scoring, leaderboards, setup checks, and payout export.</p>
+      <p>The production foundation exposes the core backend surface: wallet sign-in, creator-owned campaigns, ingestion, scoring, leaderboards, setup checks, and payout export.</p>
     </div>
 
     <section>
       <h2>Run Locally</h2>
       <div class="body">
         <pre>npm start</pre>
-        <p>Open <code>http://localhost:8787</code>, create a campaign, and save the returned Campaign Owner Token. Admin token is only needed for platform-level actions.</p>
+        <p>Open <code>http://localhost:8787</code>, connect Phantom, create a campaign, and save the returned Campaign Owner Token. Admin token is only needed for platform-level actions.</p>
       </div>
     </section>
 
@@ -51,6 +51,9 @@
         <div class="endpoint"><strong>GET /health</strong><span>Service health and version metadata.</span></div>
         <div class="endpoint"><strong>GET /api/progress</strong><span>Public product status, milestone status, and live database counts.</span></div>
         <div class="endpoint"><strong>GET /api/setup</strong><span>Production readiness checks for admin, X, Solana, wallet strict mode, and persistence.</span></div>
+        <div class="endpoint"><strong>POST /auth/wallet/challenge</strong><span>Create a wallet sign-in message for Phantom/Solflare signatures.</span></div>
+        <div class="endpoint"><strong>POST /auth/wallet/verify</strong><span>Verify a Solana wallet signature and return a session token.</span></div>
+        <div class="endpoint"><strong>GET /me</strong><span>Return the signed-in creator from a wallet session token.</span></div>
         <div class="endpoint"><strong>POST /campaigns</strong><span>Create a Solana meme coin campaign and receive a private campaign owner token.</span></div>
         <div class="endpoint"><strong>GET /campaigns</strong><span>List campaigns.</span></div>
         <div class="endpoint"><strong>POST /demo/seed</strong><span>Admin-protected sample campaign seeding for launch rehearsals.</span></div>
@@ -64,7 +67,7 @@
     <section>
       <h2>Production Path</h2>
       <div class="body">
-        <p>Configure X app credentials, X bearer token, Helius or Solana RPC, and strict wallet signatures. Keep <code>ADMIN_TOKEN</code> for platform operations only. Then move persistence to Postgres/Supabase or attach a persistent Render disk.</p>
+        <p>Create the Supabase/Postgres database with <code>supabase/schema.sql</code>, then configure X app credentials, X bearer token, Helius or Solana RPC, and strict wallet signatures. Keep <code>ADMIN_TOKEN</code> for platform operations only.</p>
       </div>
     </section>
   </main>

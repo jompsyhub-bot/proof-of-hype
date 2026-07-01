@@ -357,6 +357,7 @@
           <p>Create Solana meme campaigns, ingest social data, score virality, and export payouts.</p>
         </div>
         <div class="actions">
+          <button class="btn" id="walletBtn" type="button">Connect Wallet</button>
           <button class="btn" id="seedBtn" type="button">Seed Sample</button>
           <button class="btn primary" id="createBtn" type="button">Create Campaign</button>
         </div>
@@ -398,7 +399,7 @@
               <span class="pill medium" id="setupPill">setup</span>
             </div>
             <div class="log" id="log">
-              <div class="log-line"><span>Status</span><strong>Ready</strong></div>
+              <div class="log-line"><span>Status</span><strong id="walletStatus">Wallet not connected</strong></div>
               <div class="log-line"><span>Next</span><strong>Create a campaign, then keep the owner token safe</strong></div>
               <label class="full">Campaign Owner Token <input id="campaignToken" type="password" placeholder="Returned after campaign creation"></label>
               <label class="full">Platform Admin Token <input id="adminToken" type="password" placeholder="Only needed for platform-level actions"></label>
@@ -468,6 +469,7 @@
           method: "POST",
           headers: {
             "content-type": "application/json",
+            ...sessionHeaders(),
             ...adminHeaders()
           },
           body: JSON.stringify(body || {})
@@ -548,6 +550,34 @@
       await refreshAll();
     }
 
+    async function connectWallet() {
+      const provider = window.solana;
+      if (!provider || !provider.isPhantom) {
+        writeLog("Wallet", "Install or open Phantom");
+        return;
+      }
+
+      const connected = await provider.connect();
+      const walletAddress = connected.publicKey.toString();
+      const { challenge } = await api.post("/auth/wallet/challenge", { walletAddress });
+      const encoded = new TextEncoder().encode(challenge.message);
+      const signed = await provider.signMessage(encoded, "utf8");
+      const signature = base58Encode(signed.signature);
+      const result = await api.post("/auth/wallet/verify", {
+        walletAddress,
+        walletProvider: "phantom",
+        message: challenge.message,
+        signature,
+        signatureEncoding: "base58"
+      });
+
+      localStorage.setItem("proofOfHypeSessionToken", result.session.token);
+      localStorage.setItem("proofOfHypeWallet", walletAddress);
+      document.querySelector("#walletStatus").textContent = shortWallet(walletAddress);
+      writeLog("Wallet", `Connected ${shortWallet(walletAddress)}`);
+      await refreshAll();
+    }
+
     async function seedDemo() {
       const result = await api.post("/demo/seed", {});
       selectedCampaignId = result.campaign.id;
@@ -562,6 +592,37 @@
       if (adminToken) headers["x-admin-token"] = adminToken;
       if (campaignToken) headers["x-campaign-token"] = campaignToken;
       return headers;
+    }
+
+    function sessionHeaders() {
+      const token = localStorage.getItem("proofOfHypeSessionToken");
+      return token ? { authorization: `Bearer ${token}` } : {};
+    }
+
+    function shortWallet(wallet) {
+      return wallet ? `${wallet.slice(0, 4)}...${wallet.slice(-4)}` : "Wallet not connected";
+    }
+
+    function base58Encode(bytes) {
+      const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+      let digits = [0];
+      for (const byte of bytes) {
+        let carry = byte;
+        for (let i = 0; i < digits.length; i += 1) {
+          carry += digits[i] << 8;
+          digits[i] = carry % 58;
+          carry = Math.floor(carry / 58);
+        }
+        while (carry) {
+          digits.push(carry % 58);
+          carry = Math.floor(carry / 58);
+        }
+      }
+      for (const byte of bytes) {
+        if (byte === 0) digits.push(0);
+        else break;
+      }
+      return digits.reverse().map((digit) => alphabet[digit]).join("");
     }
 
     function saveCampaignToken(campaignId, token) {
@@ -586,6 +647,7 @@
     }
 
     document.querySelector("#createBtn").addEventListener("click", () => createCampaign().catch((err) => writeLog("Error", err.message)));
+    document.querySelector("#walletBtn").addEventListener("click", () => connectWallet().catch((err) => writeLog("Wallet", err.message)));
     document.querySelector("#seedBtn").addEventListener("click", () => seedDemo().catch((err) => writeLog("Error", err.message)));
     document.querySelector("#refreshBtn").addEventListener("click", () => refreshAll().catch((err) => writeLog("Error", err.message)));
     document.querySelector("#campaignRows").addEventListener("click", (event) => {
@@ -603,6 +665,7 @@
       }
     });
 
+    document.querySelector("#walletStatus").textContent = shortWallet(localStorage.getItem("proofOfHypeWallet"));
     refreshAll().catch((err) => writeLog("Error", err.message));
   </script>
 </body>

@@ -7,7 +7,8 @@ It serves the public build-in-progress site, the demo app console, API docs, and
 ## What It Includes
 
 - Campaign table for Solana meme launches.
-- Creator table with X identity and Solana wallet binding.
+- Creator table with X identity, wallet sign-in, and Solana wallet binding.
+- Wallet sign-in flow for Phantom/Solflare-style message signatures.
 - X OAuth 2.0 PKCE start/callback endpoints.
 - X recent-search ingestion endpoint.
 - Mock ingestion endpoint for local demos.
@@ -41,7 +42,7 @@ GET /api/setup
 
 ## Production Controls
 
-Campaign creation is self-serve. When a user creates a campaign, the API returns a one-time `ownerToken`. The operator console stores it locally and sends it as `x-campaign-token` for campaign-level actions such as ingestion and scoring.
+Campaign creation is self-serve after wallet sign-in. The campaign is tied to the signed-in creator wallet. The API also returns a one-time `ownerToken` as a recovery/fallback key. The operator console stores it locally and sends it as `x-campaign-token` for campaign-level actions such as ingestion and scoring.
 
 Set `ADMIN_TOKEN` in production for platform-level operations. The operator console sends it as `x-admin-token` for sample seeding and admin overrides.
 
@@ -55,6 +56,9 @@ GET  /api/progress
 POST /campaigns
 GET  /campaigns
 GET  /campaigns/:id
+GET  /me
+POST /auth/wallet/challenge
+POST /auth/wallet/verify
 POST /creators
 POST /creators/:id/wallet/challenge
 POST /creators/:id/wallet/bind
@@ -124,6 +128,14 @@ X_BEARER_TOKEN=
 
 ## Wallet Binding
 
+For wallet sign-in:
+
+```text
+POST /auth/wallet/challenge
+POST /auth/wallet/verify
+GET  /me
+```
+
 For production, submit a real Solana wallet signature to:
 
 ```text
@@ -131,6 +143,16 @@ POST /creators/:id/wallet/bind
 ```
 
 The server supports Ed25519 verification for base58 Solana signatures where available in Node WebCrypto. During local MVP work, `ALLOW_UNVERIFIED_WALLET_BINDING=true` accepts the nonce challenge flow without a real wallet adapter.
+
+## Database
+
+The current Node service still runs on SQLite for local development. The hosted Postgres/Supabase schema is in:
+
+```text
+supabase/schema.sql
+```
+
+Use that schema to create the production database. The next code step is swapping the persistence layer from `node:sqlite` to Supabase/Postgres using `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
 
 ## Deploy
 
@@ -153,6 +175,8 @@ X_BEARER_TOKEN=
 ALLOW_UNVERIFIED_WALLET_BINDING=false
 HELIUS_API_KEY=
 SOLANA_RPC_URL=
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
 ```
 
 For real production traffic, move persistence from local SQLite to Postgres/Supabase or attach a persistent volume. SQLite is useful for the first visible base, but not the final multi-user production database.
