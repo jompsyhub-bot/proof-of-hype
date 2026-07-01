@@ -41,7 +41,7 @@
       <h2>Run Locally</h2>
       <div class="body">
         <pre>npm start</pre>
-        <p>Open <code>http://localhost:8787</code>, enter your admin token in the operator console, then create campaigns or seed sample data.</p>
+        <p>Open <code>http://localhost:8787</code>, create a campaign, and save the returned Campaign Owner Token. Admin token is only needed for platform-level actions.</p>
       </div>
     </section>
 
@@ -51,7 +51,7 @@
         <div class="endpoint"><strong>GET /health</strong><span>Service health and version metadata.</span></div>
         <div class="endpoint"><strong>GET /api/progress</strong><span>Public product status, milestone status, and live database counts.</span></div>
         <div class="endpoint"><strong>GET /api/setup</strong><span>Production readiness checks for admin, X, Solana, wallet strict mode, and persistence.</span></div>
-        <div class="endpoint"><strong>POST /campaigns</strong><span>Create a Solana meme coin campaign.</span></div>
+        <div class="endpoint"><strong>POST /campaigns</strong><span>Create a Solana meme coin campaign and receive a private campaign owner token.</span></div>
         <div class="endpoint"><strong>GET /campaigns</strong><span>List campaigns.</span></div>
         <div class="endpoint"><strong>POST /demo/seed</strong><span>Admin-protected sample campaign seeding for launch rehearsals.</span></div>
         <div class="endpoint"><strong>POST /ingest/x</strong><span>Ingest real X posts with <code>X_BEARER_TOKEN</code>.</span></div>
@@ -64,7 +64,7 @@
     <section>
       <h2>Production Path</h2>
       <div class="body">
-        <p>Configure <code>ADMIN_TOKEN</code>, X app credentials, X bearer token, Helius or Solana RPC, and strict wallet signatures. Then move persistence to Postgres/Supabase or attach a persistent Render disk.</p>
+        <p>Configure X app credentials, X bearer token, Helius or Solana RPC, and strict wallet signatures. Keep <code>ADMIN_TOKEN</code> for platform operations only. Then move persistence to Postgres/Supabase or attach a persistent Render disk.</p>
       </div>
     </section>
   </main>

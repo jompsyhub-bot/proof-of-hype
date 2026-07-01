@@ -399,8 +399,9 @@
             </div>
             <div class="log" id="log">
               <div class="log-line"><span>Status</span><strong>Ready</strong></div>
-              <div class="log-line"><span>Next</span><strong>Configure admin token, X, and Solana providers</strong></div>
-              <label class="full">Admin Token <input id="adminToken" type="password" placeholder="Required for production write actions"></label>
+              <div class="log-line"><span>Next</span><strong>Create a campaign, then keep the owner token safe</strong></div>
+              <label class="full">Campaign Owner Token <input id="campaignToken" type="password" placeholder="Returned after campaign creation"></label>
+              <label class="full">Platform Admin Token <input id="adminToken" type="password" placeholder="Only needed for platform-level actions"></label>
             </div>
           </section>
         </div>
@@ -539,8 +540,10 @@
       const form = new FormData(document.querySelector("#campaignForm"));
       const body = Object.fromEntries(form.entries());
       body.rewardPoolRaw = Number(body.rewardPoolRaw);
-      const { campaign } = await api.post("/campaigns", body);
+      const { campaign, ownerToken } = await api.post("/campaigns", body);
       selectedCampaignId = campaign.id;
+      saveCampaignToken(campaign.id, ownerToken);
+      document.querySelector("#campaignToken").value = ownerToken;
       writeLog("Created", `Campaign #${campaign.id}`);
       await refreshAll();
     }
@@ -553,8 +556,22 @@
     }
 
     function adminHeaders() {
-      const token = document.querySelector("#adminToken").value.trim();
-      return token ? { "x-admin-token": token } : {};
+      const headers = {};
+      const adminToken = document.querySelector("#adminToken").value.trim();
+      const campaignToken = document.querySelector("#campaignToken").value.trim() || loadCampaignToken(selectedCampaignId);
+      if (adminToken) headers["x-admin-token"] = adminToken;
+      if (campaignToken) headers["x-campaign-token"] = campaignToken;
+      return headers;
+    }
+
+    function saveCampaignToken(campaignId, token) {
+      if (!campaignId || !token) return;
+      localStorage.setItem(`proofOfHypeCampaignToken:${campaignId}`, token);
+    }
+
+    function loadCampaignToken(campaignId) {
+      if (!campaignId) return "";
+      return localStorage.getItem(`proofOfHypeCampaignToken:${campaignId}`) || "";
     }
 
     async function scoreCampaign(campaignId) {
@@ -575,8 +592,15 @@
       const button = event.target.closest("button[data-action]");
       if (!button) return;
       const id = Number(button.dataset.id);
-      if (button.dataset.action === "select") loadLeaderboard(id).catch((err) => writeLog("Error", err.message));
-      if (button.dataset.action === "score") scoreCampaign(id).catch((err) => writeLog("Error", err.message));
+      if (button.dataset.action === "select") {
+        document.querySelector("#campaignToken").value = loadCampaignToken(id);
+        loadLeaderboard(id).catch((err) => writeLog("Error", err.message));
+      }
+      if (button.dataset.action === "score") {
+        selectedCampaignId = id;
+        document.querySelector("#campaignToken").value = loadCampaignToken(id);
+        scoreCampaign(id).catch((err) => writeLog("Error", err.message));
+      }
     });
 
     refreshAll().catch((err) => writeLog("Error", err.message));

@@ -41,7 +41,9 @@ GET /api/setup
 
 ## Production Controls
 
-Set `ADMIN_TOKEN` in production. The operator console sends it as `x-admin-token` for campaign creation, ingestion, scoring, wallet binding, and sample seeding.
+Campaign creation is self-serve. When a user creates a campaign, the API returns a one-time `ownerToken`. The operator console stores it locally and sends it as `x-campaign-token` for campaign-level actions such as ingestion and scoring.
+
+Set `ADMIN_TOKEN` in production for platform-level operations. The operator console sends it as `x-admin-token` for sample seeding and admin overrides.
 
 Without `ADMIN_TOKEN`, production write routes return `admin_token_not_configured`.
 

@@ -79,10 +79,9 @@ async function route(req, res) {
   }
 
   if (req.method === "POST" && routePath === "/campaigns") {
-    requireAdmin(req);
     const body = await readJson(req);
     const campaign = createCampaign(body);
-    sendJson(res, 201, { campaign });
+    sendJson(res, 201, campaign);
     return;
   }
 
@@ -146,8 +145,8 @@ async function route(req, res) {
   }
 
   if (req.method === "POST" && routePath === "/ingest/mock") {
-    requireAdmin(req);
     const body = await readJson(req);
+    requireCampaignAccess(req, Number(body.campaignId));
     const result = ingestMockPosts(Number(body.campaignId));
     sendJson(res, 201, result);
     return;
@@ -163,16 +162,16 @@ async function route(req, res) {
   }
 
   if (req.method === "POST" && routePath === "/ingest/x") {
-    requireAdmin(req);
     const body = await readJson(req);
+    requireCampaignAccess(req, Number(body.campaignId));
     const result = await ingestXPosts(Number(body.campaignId), Number(body.maxResults || 25));
     sendJson(res, 201, result);
     return;
   }
 
   if (req.method === "POST" && routePath === "/workers/score") {
-    requireAdmin(req);
     const body = await readJson(req);
+    requireCampaignAccess(req, Number(body.campaignId));
     const result = runScoringWorker(Number(body.campaignId));
     sendJson(res, 200, result);
     return;
@@ -297,11 +296,45 @@ function requireAdmin(req) {
   if (provided !== ADMIN_TOKEN) throw httpError(401, "admin_token_required");
 }
 
+function requireCampaignAccess(req, campaignId) {
+  if (!campaignId) throw httpError(400, "campaign_id_required");
+
+  const adminProvided = req.headers["x-admin-token"] || bearerToken(req.headers.authorization);
+  if (ADMIN_TOKEN && adminProvided === ADMIN_TOKEN) return;
+
+  const campaignToken = req.headers["x-campaign-token"];
+  if (!campaignToken) throw httpError(401, "campaign_token_required");
+
+  const row = db.prepare("SELECT owner_token_hash FROM campaigns WHERE id = ?").get(campaignId);
+  if (!row) throw httpError(404, "campaign_not_found");
+  if (!row.owner_token_hash) throw httpError(401, "campaign_token_not_available");
+  if (!safeEqual(row.owner_token_hash, hashToken(campaignToken))) {
+    throw httpError(401, "campaign_token_invalid");
+  }
+}
+
 function bearerToken(header) {
   if (!header) return "";
   const match = String(header).match(/^Bearer\s+(.+)$/i);
   return match ? match[1] : "";
 }
+
+function hashToken(token) {
+  return crypto.createHash("sha256").update(String(token)).digest("hex");
+}
+
+function safeEqual(a, b) {
+  const left = Buffer.from(String(a));
+  const right = Buffer.from(String(b));
+  return left.length === right.length && crypto.timingSafeEqual(left, right);
+}
+
+function addColumnIfMissing(table, column, definition) {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (columns.some((item) => item.name === column)) return;
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+}
+
 
 function ensureDemoCampaign() {
   const existing = db.prepare("SELECT * FROM campaigns WHERE tag = ? ORDER BY id DESC LIMIT 1").get("$WAGMI");
@@ -315,7 +348,7 @@ function ensureDemoCampaign() {
     rewardPoolRaw: 420000000,
     ownerWallet: "SoLDeployerWalletExample",
     status: "live"
-  });
+  }).campaign;
 }
 
 function initDatabase() {
@@ -323,6 +356,7 @@ function initDatabase() {
     CREATE TABLE IF NOT EXISTS campaigns (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       owner_wallet TEXT NOT NULL,
+      owner_token_hash TEXT,
       name TEXT NOT NULL,
       tag TEXT NOT NULL,
       token_mint TEXT NOT NULL,
@@ -420,20 +454,25 @@ function initDatabase() {
       UNIQUE(campaign_id, author_handle)
     );
   `);
+
+  addColumnIfMissing("campaigns", "owner_token_hash", "TEXT");
 }
 
 function createCampaign(body) {
   const now = new Date();
   const startAt = body.startAt || now.toISOString();
   const endAt = body.endAt || new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  const ownerToken = crypto.randomBytes(32).toString("base64url");
+  const ownerTokenHash = hashToken(ownerToken);
 
   requireFields(body, ["name", "tag", "tokenMint", "rewardPoolRaw", "ownerWallet"]);
 
   const result = db.prepare(`
-    INSERT INTO campaigns (owner_wallet, name, tag, token_mint, launch_venue, dex_pool_address, reward_pool_raw, start_at, end_at, status)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO campaigns (owner_wallet, owner_token_hash, name, tag, token_mint, launch_venue, dex_pool_address, reward_pool_raw, start_at, end_at, status)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     body.ownerWallet,
+    ownerTokenHash,
     body.name,
     normalizeTag(body.tag),
     body.tokenMint,
@@ -445,7 +484,10 @@ function createCampaign(body) {
     body.status || "live"
   );
 
-  return getCampaign(result.lastInsertRowid);
+  return {
+    campaign: getCampaign(result.lastInsertRowid),
+    ownerToken
+  };
 }
 
 function getCampaign(id) {
@@ -1056,7 +1098,7 @@ function sendText(res, status, text, contentType, headers = {}) {
 function setCors(res) {
   res.setHeader("access-control-allow-origin", corsOrigin());
   res.setHeader("access-control-allow-methods", "GET,POST,OPTIONS");
-  res.setHeader("access-control-allow-headers", "content-type,authorization,x-admin-token");
+  res.setHeader("access-control-allow-headers", "content-type,authorization,x-admin-token,x-campaign-token");
 }
 
 function corsOrigin() {

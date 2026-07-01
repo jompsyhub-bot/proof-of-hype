@@ -55,7 +55,9 @@ HELIUS_API_KEY=
 SOLANA_RPC_URL=
 ```
 
-In the hosted `/app` console, paste the same `ADMIN_TOKEN` into the Admin Token field before creating campaigns, seeding sample data, ingesting posts, or scoring.
+In the hosted `/app` console, normal users can create campaigns without the platform admin token. After creation, the app shows a Campaign Owner Token. Save it because it is needed for campaign-level actions like ingestion and scoring.
+
+Paste `ADMIN_TOKEN` only for platform-level actions such as sample seeding or admin overrides.
 
 ## First Public Smoke Test
 
