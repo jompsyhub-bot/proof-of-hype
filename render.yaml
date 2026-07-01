@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: proof-of-hype
+    env: docker
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: 8787
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: X_CLIENT_ID
+        sync: false
+      - key: X_CLIENT_SECRET
+        sync: false
+      - key: X_CALLBACK_URL
+        sync: false
+      - key: X_BEARER_TOKEN
+        sync: false
+      - key: ALLOW_UNVERIFIED_WALLET_BINDING
+        value: "false"

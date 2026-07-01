@@ -1,0 +1,14 @@
+{
+  "name": "proof-of-hype-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server.js",
+    "check": "node --check src/server.js",
+    "smoke": "node src/server.js"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Proof of Hype App</title>
+  <style>
+    :root {
+      --ink: #101216;
+      --muted: #65717d;
+      --line: #dce5ea;
+      --paper: #fff;
+      --soft: #f3f6f8;
+      --green: #18a66c;
+      --yellow: #efb02f;
+      --red: #c54242;
+      --teal: #188c98;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: #eef3f4;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+
+    button, input, select { font: inherit; }
+    a { color: inherit; text-decoration: none; }
+
+    .layout {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 248px minmax(0, 1fr);
+    }
+
+    aside {
+      background: #111316;
+      color: #f7fafb;
+      padding: 20px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 22px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-height: 44px;
+    }
+
+    .mark {
+      width: 42px;
+      height: 42px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(135deg, var(--green), var(--yellow));
+      color: #111316;
+      font-weight: 900;
+    }
+
+    .brand strong { display: block; }
+    .brand span { color: #aeb8c1; font-size: 12px; }
+
+    .nav {
+      display: grid;
+      gap: 8px;
+    }
+
+    .nav a, .nav button {
+      min-height: 40px;
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      color: #cbd4dc;
+      padding: 0 10px;
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .nav a.active, .nav button:hover, .nav a:hover {
+      background: #20252a;
+      color: #fff;
+    }
+
+    .side-note {
+      margin-top: auto;
+      border: 1px solid #2c343a;
+      border-radius: 8px;
+      background: #171b1f;
+      padding: 12px;
+      color: #cbd4dc;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    main {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      min-height: 68px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      padding: 0 26px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255,255,255,.92);
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      backdrop-filter: blur(10px);
+    }
+
+    h1 { margin: 0; font-size: 22px; }
+    header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .btn {
+      min-height: 38px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fff;
+      padding: 0 12px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-weight: 800;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .btn.primary {
+      border-color: var(--ink);
+      background: var(--ink);
+      color: #fff;
+    }
+
+    .content {
+      padding: 24px 26px 34px;
+      display: grid;
+      gap: 18px;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .metric, .panel {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    .metric {
+      min-height: 108px;
+      padding: 15px;
+      display: grid;
+      align-content: space-between;
+    }
+
+    .metric span {
+      color: var(--muted);
+      text-transform: uppercase;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .metric strong {
+      font-size: 27px;
+      line-height: 1;
+    }
+
+    .metric em {
+      color: var(--green);
+      font-style: normal;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) minmax(330px, .75fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .panel { overflow: hidden; }
+
+    .panel-head {
+      min-height: 58px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .panel-head h2 { margin: 0; font-size: 16px; }
+
+    .form {
+      padding: 16px;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    label {
+      display: grid;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      font-weight: 900;
+    }
+
+    input, select {
+      height: 40px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fff;
+      padding: 0 10px;
+      min-width: 0;
+    }
+
+    .full { grid-column: 1 / -1; }
+
+    .table-wrap { overflow-x: auto; }
+
+    table {
+      width: 100%;
+      min-width: 760px;
+      border-collapse: collapse;
+    }
+
+    th, td {
+      text-align: left;
+      padding: 13px 16px;
+      border-bottom: 1px solid var(--line);
+      font-size: 14px;
+      vertical-align: middle;
+    }
+
+    th {
+      color: var(--muted);
+      text-transform: uppercase;
+      font-size: 12px;
+    }
+
+    tr:last-child td { border-bottom: 0; }
+
+    .pill {
+      min-height: 24px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      padding: 0 9px;
+      font-size: 12px;
+      font-weight: 900;
+      background: #e7f7ef;
+      color: #0d7449;
+      white-space: nowrap;
+    }
+
+    .pill.medium { background: #fff4d7; color: #815500; }
+    .pill.high { background: #ffe5e5; color: #9b2525; }
+
+    .empty {
+      padding: 22px 16px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .log {
+      padding: 16px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .log-line {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--line);
+      font-size: 13px;
+    }
+
+    .log-line:last-child { border-bottom: 0; padding-bottom: 0; }
+    .log-line span { color: var(--muted); }
+    .log-line strong { text-align: right; }
+
+    @media (max-width: 1040px) {
+      .layout { grid-template-columns: 1fr; }
+      aside { position: static; }
+      .nav { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .side-note { display: none; }
+      .metrics, .grid { grid-template-columns: 1fr 1fr; }
+    }
+
+    @media (max-width: 740px) {
+      header {
+        align-items: flex-start;
+        flex-direction: column;
+        padding: 16px;
+      }
+      .content { padding: 16px; }
+      .metrics, .grid, .form { grid-template-columns: 1fr; }
+      .actions { width: 100%; }
+      .actions .btn { flex: 1; }
+      .nav { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside>
+      <a class="brand" href="/">
+        <div class="mark">PH</div>
+        <div>
+          <strong>Proof of Hype</strong>
+          <span>Public MVP console</span>
+        </div>
+      </a>
+      <nav class="nav">
+        <a class="active" href="/app">Dashboard</a>
+        <a href="/docs">API Docs</a>
+        <a href="/">Progress</a>
+      </nav>
+      <div class="side-note">Build-in-public base: seed demo data, score viral posts, and export SPL payouts while real integrations are added.</div>
+    </aside>
+
+    <main>
+      <header>
+        <div>
+          <h1>Solana meme campaign console</h1>
+          <p>Create, seed, score, and export the first Proof of Hype campaign.</p>
+        </div>
+        <div class="actions">
+          <button class="btn" id="seedBtn" type="button">Seed Demo</button>
+          <button class="btn primary" id="createBtn" type="button">Create Campaign</button>
+        </div>
+      </header>
+
+      <section class="content">
+        <div class="metrics">
+          <div class="metric"><span>Campaigns</span><strong id="mCampaigns">-</strong><em>SQLite live</em></div>
+          <div class="metric"><span>Tracked posts</span><strong id="mPosts">-</strong><em>X-ready</em></div>
+          <div class="metric"><span>Payout rows</span><strong id="mPayouts">-</strong><em>SPL export</em></div>
+          <div class="metric"><span>Stage</span><strong id="mStage">MVP</strong><em>public base</em></div>
+        </div>
+
+        <div class="grid">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Create Campaign</h2>
+              <span class="pill">Solana</span>
+            </div>
+            <form class="form" id="campaignForm">
+              <label>Name <input name="name" value="$WAGMI launch raid"></label>
+              <label>Tag <input name="tag" value="$WAGMI"></label>
+              <label>Launch Venue
+                <select name="launchVenue">
+                  <option>Pump.fun</option>
+                  <option>Raydium</option>
+                  <option>Meteora</option>
+                </select>
+              </label>
+              <label>Reward Pool Raw <input name="rewardPoolRaw" type="number" value="420000000"></label>
+              <label class="full">Token Mint / CA <input name="tokenMint" value="WAGM1meme9xPumpExampleMintAddr7QFvR2"></label>
+              <label class="full">Owner Wallet <input name="ownerWallet" value="SoLDeployerWalletExample"></label>
+            </form>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Runbook</h2>
+              <span class="pill medium">local</span>
+            </div>
+            <div class="log" id="log">
+              <div class="log-line"><span>Status</span><strong>Ready</strong></div>
+              <div class="log-line"><span>Next</span><strong>Create or seed a campaign</strong></div>
+            </div>
+          </section>
+        </div>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Campaigns</h2>
+            <button class="btn" id="refreshBtn" type="button">Refresh</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Name</th>
+                  <th>Tag</th>
+                  <th>Venue</th>
+                  <th>Reward Pool</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="campaignRows"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Leaderboard</h2>
+            <span class="pill" id="activeCampaign">No campaign selected</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Rank</th>
+                  <th>Handle</th>
+                  <th>Views</th>
+                  <th>Score</th>
+                  <th>Risk</th>
+                  <th>Wallet</th>
+                </tr>
+              </thead>
+              <tbody id="leaderboardRows"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    let selectedCampaignId = null;
+
+    const api = {
+      async get(path) {
+        const res = await fetch(path);
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+      },
+      async post(path, body) {
+        const res = await fetch(path, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body || {})
+        });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+      }
+    };
+
+    function writeLog(label, value) {
+      const log = document.querySelector("#log");
+      const row = document.createElement("div");
+      row.className = "log-line";
+      row.innerHTML = `<span>${label}</span><strong>${value}</strong>`;
+      log.prepend(row);
+    }
+
+    async function loadProgress() {
+      const progress = await api.get("/api/progress");
+      document.querySelector("#mCampaigns").textContent = progress.stats.campaigns;
+      document.querySelector("#mPosts").textContent = progress.stats.posts;
+      document.querySelector("#mPayouts").textContent = progress.stats.payouts;
+      document.querySelector("#mStage").textContent = progress.stage.replace("Public ", "");
+    }
+
+    async function loadCampaigns() {
+      const { campaigns } = await api.get("/campaigns");
+      const rows = document.querySelector("#campaignRows");
+      rows.innerHTML = campaigns.map((campaign) => `
+        <tr>
+          <td>#${campaign.id}</td>
+          <td>${campaign.name}</td>
+          <td>${campaign.tag}</td>
+          <td>${campaign.launchVenue}</td>
+          <td>${Number(campaign.rewardPoolRaw).toLocaleString()}</td>
+          <td><span class="pill">${campaign.status}</span></td>
+          <td>
+            <button class="btn" data-action="select" data-id="${campaign.id}" type="button">Select</button>
+            <button class="btn" data-action="score" data-id="${campaign.id}" type="button">Score</button>
+            <a class="btn" href="/campaigns/${campaign.id}/payouts.csv">CSV</a>
+          </td>
+        </tr>
+      `).join("") || `<tr><td colspan="7"><div class="empty">No campaigns yet. Create one or seed demo data.</div></td></tr>`;
+
+      if (!selectedCampaignId && campaigns[0]) selectedCampaignId = campaigns[0].id;
+      if (selectedCampaignId) await loadLeaderboard(selectedCampaignId);
+    }
+
+    async function loadLeaderboard(campaignId) {
+      selectedCampaignId = campaignId;
+      document.querySelector("#activeCampaign").textContent = `Campaign #${campaignId}`;
+      const { leaderboard } = await api.get(`/campaigns/${campaignId}/leaderboard`);
+      const rows = document.querySelector("#leaderboardRows");
+      rows.innerHTML = leaderboard.map((entry) => `
+        <tr>
+          <td>#${entry.rank}</td>
+          <td>@${entry.authorHandle}</td>
+          <td>${Number(entry.views).toLocaleString()}</td>
+          <td>${Number(entry.score).toLocaleString()}</td>
+          <td><span class="pill ${entry.riskLevel}">${entry.riskLevel}</span></td>
+          <td>${entry.walletAddress || "pending"}</td>
+        </tr>
+      `).join("") || `<tr><td colspan="6"><div class="empty">No scored posts yet. Seed demo posts, then run scoring.</div></td></tr>`;
+    }
+
+    async function createCampaign() {
+      const form = new FormData(document.querySelector("#campaignForm"));
+      const body = Object.fromEntries(form.entries());
+      body.rewardPoolRaw = Number(body.rewardPoolRaw);
+      const { campaign } = await api.post("/campaigns", body);
+      selectedCampaignId = campaign.id;
+      writeLog("Created", `Campaign #${campaign.id}`);
+      await refreshAll();
+    }
+
+    async function seedDemo() {
+      const result = await api.post("/demo/seed", {});
+      selectedCampaignId = result.campaign.id;
+      writeLog("Seeded", `${result.ingested.total} demo posts`);
+      await refreshAll();
+    }
+
+    async function scoreCampaign(campaignId) {
+      const result = await api.post("/workers/score", { campaignId });
+      writeLog("Scored", `${result.scoredPosts} posts`);
+      await refreshAll();
+    }
+
+    async function refreshAll() {
+      await loadProgress();
+      await loadCampaigns();
+    }
+
+    document.querySelector("#createBtn").addEventListener("click", () => createCampaign().catch((err) => writeLog("Error", err.message)));
+    document.querySelector("#seedBtn").addEventListener("click", () => seedDemo().catch((err) => writeLog("Error", err.message)));
+    document.querySelector("#refreshBtn").addEventListener("click", () => refreshAll().catch((err) => writeLog("Error", err.message)));
+    document.querySelector("#campaignRows").addEventListener("click", (event) => {
+      const button = event.target.closest("button[data-action]");
+      if (!button) return;
+      const id = Number(button.dataset.id);
+      if (button.dataset.action === "select") loadLeaderboard(id).catch((err) => writeLog("Error", err.message));
+      if (button.dataset.action === "score") scoreCampaign(id).catch((err) => writeLog("Error", err.message));
+    });
+
+    refreshAll().catch((err) => writeLog("Error", err.message));
+  </script>
+</body>
+</html>

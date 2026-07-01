@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Proof of Hype</title>
+  <style>
+    :root {
+      --ink: #101216;
+      --muted: #66717d;
+      --line: #dde5ea;
+      --paper: #ffffff;
+      --soft: #f3f6f8;
+      --green: #18a66c;
+      --yellow: #f0b429;
+      --teal: #188c98;
+      --red: #c54242;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: #eef3f4;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+
+    a { color: inherit; text-decoration: none; }
+
+    .shell {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      height: 68px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 0 28px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255,255,255,.92);
+      position: sticky;
+      top: 0;
+      backdrop-filter: blur(10px);
+      z-index: 2;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .mark {
+      width: 42px;
+      height: 42px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(135deg, var(--green), var(--yellow));
+      font-weight: 900;
+    }
+
+    .brand strong { display: block; font-size: 17px; }
+    .brand span { color: var(--muted); font-size: 12px; }
+
+    nav {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .btn {
+      min-height: 38px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: #fff;
+      padding: 0 13px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .btn.primary {
+      background: var(--ink);
+      color: #fff;
+      border-color: var(--ink);
+    }
+
+    main {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 42px 0 56px;
+      display: grid;
+      gap: 24px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(340px, .85fr);
+      gap: 22px;
+      align-items: stretch;
+    }
+
+    .hero-copy {
+      padding: 22px 0;
+      display: grid;
+      align-content: center;
+      gap: 18px;
+    }
+
+    h1 {
+      margin: 0;
+      max-width: 760px;
+      font-size: clamp(42px, 7vw, 78px);
+      line-height: .95;
+      letter-spacing: 0;
+    }
+
+    .lead {
+      max-width: 680px;
+      margin: 0;
+      color: #34404a;
+      font-size: 19px;
+      line-height: 1.55;
+    }
+
+    .hero-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .terminal {
+      min-height: 430px;
+      background: #111316;
+      color: #eef3f4;
+      border-radius: 8px;
+      border: 1px solid #20262b;
+      overflow: hidden;
+      display: grid;
+      grid-template-rows: 42px 1fr;
+      box-shadow: 0 24px 48px rgba(17, 19, 22, .18);
+    }
+
+    .terminal-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 14px;
+      background: #1b2025;
+      color: #aeb8c1;
+      font-size: 13px;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--green);
+    }
+
+    .terminal-body {
+      padding: 18px;
+      display: grid;
+      gap: 14px;
+      align-content: start;
+    }
+
+    .line {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      border-bottom: 1px solid #252b31;
+      padding-bottom: 10px;
+      font-size: 14px;
+    }
+
+    .line span { color: #aeb8c1; }
+    .line strong { text-align: right; }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .card {
+      min-height: 132px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      display: grid;
+      align-content: space-between;
+    }
+
+    .card span {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      font-weight: 800;
+    }
+
+    .card strong {
+      font-size: 28px;
+      line-height: 1;
+    }
+
+    .card em {
+      color: var(--green);
+      font-style: normal;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .section {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .section-head {
+      min-height: 58px;
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .section-head h2 {
+      margin: 0;
+      font-size: 17px;
+    }
+
+    .milestones {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .milestone {
+      min-height: 120px;
+      padding: 16px;
+      border-right: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      display: grid;
+      gap: 10px;
+      align-content: start;
+    }
+
+    .milestone:nth-child(4n) { border-right: 0; }
+
+    .pill {
+      width: fit-content;
+      min-height: 24px;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      padding: 0 9px;
+      font-size: 12px;
+      font-weight: 900;
+      background: #e7f7ef;
+      color: #0d7449;
+    }
+
+    .pill.next {
+      background: #fff4d7;
+      color: #815500;
+    }
+
+    @media (max-width: 940px) {
+      .hero, .cards, .milestones { grid-template-columns: 1fr 1fr; }
+    }
+
+    @media (max-width: 680px) {
+      header {
+        height: auto;
+        min-height: 68px;
+        align-items: flex-start;
+        flex-direction: column;
+        padding: 14px 16px;
+      }
+
+      nav { width: 100%; justify-content: stretch; }
+      nav .btn { flex: 1; }
+      main { padding-top: 28px; }
+      .hero, .cards, .milestones { grid-template-columns: 1fr; }
+      .milestone { border-right: 0; }
+      h1 { font-size: 44px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <a class="brand" href="/">
+        <div class="mark">PH</div>
+        <div>
+          <strong>Proof of Hype</strong>
+          <span>Solana meme drop engine</span>
+        </div>
+      </a>
+      <nav>
+        <a class="btn" href="/docs">Docs</a>
+        <a class="btn primary" href="/app">Open App</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="hero-copy">
+          <h1>Reward the posts that actually send your Solana meme coin.</h1>
+          <p class="lead">Proof of Hype tracks X posts for a ticker, token mint, or launch link, scores real attention, flags farm behavior, and exports SPL payouts for the winning creators.</p>
+          <div class="hero-actions">
+            <a class="btn primary" href="/app">Launch demo campaign</a>
+            <a class="btn" href="/api/progress">View live progress JSON</a>
+          </div>
+        </div>
+
+        <aside class="terminal" aria-label="Live product status">
+          <div class="terminal-head"><span class="dot"></span> public MVP base</div>
+          <div class="terminal-body">
+            <div class="line"><span>Backend</span><strong>Online</strong></div>
+            <div class="line"><span>Campaigns</span><strong id="campaigns">-</strong></div>
+            <div class="line"><span>Tracked posts</span><strong id="posts">-</strong></div>
+            <div class="line"><span>Payout rows</span><strong id="payouts">-</strong></div>
+            <div class="line"><span>Next build</span><strong>Hosted beta</strong></div>
+            <div class="line"><span>Core niche</span><strong>Solana memes</strong></div>
+          </div>
+        </aside>
+      </section>
+
+      <section class="cards" aria-label="Product pillars">
+        <div class="card"><span>Campaigns</span><strong>CA + tag</strong><em>Pump.fun ready</em></div>
+        <div class="card"><span>Identity</span><strong>X + wallet</strong><em>Phantom first</em></div>
+        <div class="card"><span>Scoring</span><strong>Anti-farm</strong><em>Built in</em></div>
+        <div class="card"><span>Rewards</span><strong>SPL CSV</strong><em>Export now</em></div>
+      </section>
+
+      <section class="section">
+        <div class="section-head">
+          <h2>Build Progress</h2>
+          <a class="btn" href="/docs">API Docs</a>
+        </div>
+        <div class="milestones" id="milestones"></div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    async function loadProgress() {
+      const progress = await fetch("/api/progress").then((res) => res.json());
+      document.querySelector("#campaigns").textContent = progress.stats.campaigns;
+      document.querySelector("#posts").textContent = progress.stats.posts;
+      document.querySelector("#payouts").textContent = progress.stats.payouts;
+      document.querySelector("#milestones").innerHTML = progress.milestones.map((item) => `
+        <div class="milestone">
+          <span class="pill ${item.status === "next" ? "next" : ""}">${item.status}</span>
+          <strong>${item.title}</strong>
+        </div>
+      `).join("");
+    }
+
+    loadProgress().catch(() => {
+      document.querySelector("#milestones").innerHTML = "<div class='milestone'><strong>Progress API unavailable</strong></div>";
+    });
+  </script>
+</body>
+</html>
