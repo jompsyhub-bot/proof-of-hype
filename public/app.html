@@ -339,7 +339,7 @@
         <div class="mark">PH</div>
         <div>
           <strong>Proof of Hype</strong>
-          <span>Public MVP console</span>
+          <span>Operator console</span>
         </div>
       </a>
       <nav class="nav">
@@ -347,17 +347,17 @@
         <a href="/docs">API Docs</a>
         <a href="/">Progress</a>
       </nav>
-      <div class="side-note">Build-in-public base: seed demo data, score viral posts, and export SPL payouts while real integrations are added.</div>
+      <div class="side-note">Production console: create campaigns, ingest X posts, score attention, review risk, and export SPL payout rows.</div>
     </aside>
 
     <main>
       <header>
         <div>
           <h1>Solana meme campaign console</h1>
-          <p>Create, seed, score, and export the first Proof of Hype campaign.</p>
+          <p>Create Solana meme campaigns, ingest social data, score virality, and export payouts.</p>
         </div>
         <div class="actions">
-          <button class="btn" id="seedBtn" type="button">Seed Demo</button>
+          <button class="btn" id="seedBtn" type="button">Seed Sample</button>
           <button class="btn primary" id="createBtn" type="button">Create Campaign</button>
         </div>
       </header>
@@ -367,7 +367,7 @@
           <div class="metric"><span>Campaigns</span><strong id="mCampaigns">-</strong><em>SQLite live</em></div>
           <div class="metric"><span>Tracked posts</span><strong id="mPosts">-</strong><em>X-ready</em></div>
           <div class="metric"><span>Payout rows</span><strong id="mPayouts">-</strong><em>SPL export</em></div>
-          <div class="metric"><span>Stage</span><strong id="mStage">MVP</strong><em>public base</em></div>
+          <div class="metric"><span>Readiness</span><strong id="mReady">-</strong><em id="mReadyText">setup</em></div>
         </div>
 
         <div class="grid">
@@ -395,11 +395,12 @@
           <section class="panel">
             <div class="panel-head">
               <h2>Runbook</h2>
-              <span class="pill medium">local</span>
+              <span class="pill medium" id="setupPill">setup</span>
             </div>
             <div class="log" id="log">
               <div class="log-line"><span>Status</span><strong>Ready</strong></div>
-              <div class="log-line"><span>Next</span><strong>Create or seed a campaign</strong></div>
+              <div class="log-line"><span>Next</span><strong>Configure admin token, X, and Solana providers</strong></div>
+              <label class="full">Admin Token <input id="adminToken" type="password" placeholder="Required for production write actions"></label>
             </div>
           </section>
         </div>
@@ -464,7 +465,10 @@
       async post(path, body) {
         const res = await fetch(path, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: {
+            "content-type": "application/json",
+            ...adminHeaders()
+          },
           body: JSON.stringify(body || {})
         });
         if (!res.ok) throw new Error(await res.text());
@@ -482,10 +486,13 @@
 
     async function loadProgress() {
       const progress = await api.get("/api/progress");
+      const setup = await api.get("/api/setup");
       document.querySelector("#mCampaigns").textContent = progress.stats.campaigns;
       document.querySelector("#mPosts").textContent = progress.stats.posts;
       document.querySelector("#mPayouts").textContent = progress.stats.payouts;
-      document.querySelector("#mStage").textContent = progress.stage.replace("Public ", "");
+      document.querySelector("#mReady").textContent = setup.ready ? "Ready" : "Needs config";
+      document.querySelector("#mReadyText").textContent = setup.environment;
+      document.querySelector("#setupPill").textContent = setup.ready ? "ready" : "config";
     }
 
     async function loadCampaigns() {
@@ -505,7 +512,7 @@
             <a class="btn" href="/campaigns/${campaign.id}/payouts.csv">CSV</a>
           </td>
         </tr>
-      `).join("") || `<tr><td colspan="7"><div class="empty">No campaigns yet. Create one or seed demo data.</div></td></tr>`;
+      `).join("") || `<tr><td colspan="7"><div class="empty">No campaigns yet. Create one or seed sample data with an admin token.</div></td></tr>`;
 
       if (!selectedCampaignId && campaigns[0]) selectedCampaignId = campaigns[0].id;
       if (selectedCampaignId) await loadLeaderboard(selectedCampaignId);
@@ -525,7 +532,7 @@
           <td><span class="pill ${entry.riskLevel}">${entry.riskLevel}</span></td>
           <td>${entry.walletAddress || "pending"}</td>
         </tr>
-      `).join("") || `<tr><td colspan="6"><div class="empty">No scored posts yet. Seed demo posts, then run scoring.</div></td></tr>`;
+      `).join("") || `<tr><td colspan="6"><div class="empty">No scored posts yet. Ingest X posts or seed sample posts, then run scoring.</div></td></tr>`;
     }
 
     async function createCampaign() {
@@ -541,8 +548,13 @@
     async function seedDemo() {
       const result = await api.post("/demo/seed", {});
       selectedCampaignId = result.campaign.id;
-      writeLog("Seeded", `${result.ingested.total} demo posts`);
+      writeLog("Seeded", `${result.ingested.total} sample posts`);
       await refreshAll();
+    }
+
+    function adminHeaders() {
+      const token = document.querySelector("#adminToken").value.trim();
+      return token ? { "x-admin-token": token } : {};
     }
 
     async function scoreCampaign(campaignId) {

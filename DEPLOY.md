@@ -45,12 +45,17 @@ Environment variables:
 ```text
 PORT=8787
 PUBLIC_BASE_URL=https://your-render-url
+ADMIN_TOKEN=generate-a-long-random-secret
 X_CLIENT_ID=
 X_CLIENT_SECRET=
 X_CALLBACK_URL=https://your-render-url/auth/x/callback
 X_BEARER_TOKEN=
 ALLOW_UNVERIFIED_WALLET_BINDING=false
+HELIUS_API_KEY=
+SOLANA_RPC_URL=
 ```
+
+In the hosted `/app` console, paste the same `ADMIN_TOKEN` into the Admin Token field before creating campaigns, seeding sample data, ingesting posts, or scoring.
 
 ## First Public Smoke Test
 

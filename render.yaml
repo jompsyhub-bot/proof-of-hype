@@ -9,6 +9,8 @@ services:
         value: 8787
       - key: PUBLIC_BASE_URL
         sync: false
+      - key: ADMIN_TOKEN
+        sync: false
       - key: X_CLIENT_ID
         sync: false
       - key: X_CLIENT_SECRET
@@ -19,3 +21,7 @@ services:
         sync: false
       - key: ALLOW_UNVERIFIED_WALLET_BINDING
         value: "false"
+      - key: HELIUS_API_KEY
+        sync: false
+      - key: SOLANA_RPC_URL
+        sync: false

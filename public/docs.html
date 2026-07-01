@@ -34,14 +34,14 @@
   <main>
     <div>
       <h1>API Docs</h1>
-      <p>The public MVP base exposes enough backend surface to build in real time: campaigns, creator binding, ingestion, scoring, leaderboards, and payout export.</p>
+      <p>The production foundation exposes the core backend surface: campaigns, creator binding, ingestion, scoring, leaderboards, setup checks, and payout export.</p>
     </div>
 
     <section>
       <h2>Run Locally</h2>
       <div class="body">
         <pre>npm start</pre>
-        <p>Open <code>http://localhost:8787</code>, then use the app to seed demo data or create campaigns.</p>
+        <p>Open <code>http://localhost:8787</code>, enter your admin token in the operator console, then create campaigns or seed sample data.</p>
       </div>
     </section>
 
@@ -49,10 +49,11 @@
       <h2>Core Endpoints</h2>
       <div class="body">
         <div class="endpoint"><strong>GET /health</strong><span>Service health and version metadata.</span></div>
-        <div class="endpoint"><strong>GET /api/progress</strong><span>Public build progress, milestone status, and live database counts.</span></div>
+        <div class="endpoint"><strong>GET /api/progress</strong><span>Public product status, milestone status, and live database counts.</span></div>
+        <div class="endpoint"><strong>GET /api/setup</strong><span>Production readiness checks for admin, X, Solana, wallet strict mode, and persistence.</span></div>
         <div class="endpoint"><strong>POST /campaigns</strong><span>Create a Solana meme coin campaign.</span></div>
         <div class="endpoint"><strong>GET /campaigns</strong><span>List campaigns.</span></div>
-        <div class="endpoint"><strong>POST /demo/seed</strong><span>Create/seed the $WAGMI demo campaign and run scoring.</span></div>
+        <div class="endpoint"><strong>POST /demo/seed</strong><span>Admin-protected sample campaign seeding for launch rehearsals.</span></div>
         <div class="endpoint"><strong>POST /ingest/x</strong><span>Ingest real X posts with <code>X_BEARER_TOKEN</code>.</span></div>
         <div class="endpoint"><strong>POST /workers/score</strong><span>Score posts and rebuild payout rows.</span></div>
         <div class="endpoint"><strong>GET /campaigns/:id/leaderboard</strong><span>Rank scored posts by creator and risk signal.</span></div>
@@ -63,7 +64,7 @@
     <section>
       <h2>Production Path</h2>
       <div class="body">
-        <p>Move SQLite to Postgres/Supabase, add managed auth sessions, configure X app credentials, add Helius holder enrichment, and deploy the Node service behind HTTPS.</p>
+        <p>Configure <code>ADMIN_TOKEN</code>, X app credentials, X bearer token, Helius or Solana RPC, and strict wallet signatures. Then move persistence to Postgres/Supabase or attach a persistent Render disk.</p>
       </div>
     </section>
   </main>

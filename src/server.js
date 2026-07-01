@@ -13,6 +13,9 @@ const PUBLIC_DIR = path.resolve(__dirname, "../public");
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || `http://localhost:${PORT}`;
 const X_CALLBACK_URL = process.env.X_CALLBACK_URL || `${PUBLIC_BASE_URL}/auth/x/callback`;
 const ALLOW_UNVERIFIED_WALLET_BINDING = String(process.env.ALLOW_UNVERIFIED_WALLET_BINDING || "true") === "true";
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "";
+const HELIUS_API_KEY = process.env.HELIUS_API_KEY || "";
 
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 const db = new DatabaseSync(DB_PATH);
@@ -70,7 +73,13 @@ async function route(req, res) {
     return;
   }
 
+  if (req.method === "GET" && routePath === "/api/setup") {
+    sendJson(res, 200, getSetupStatus());
+    return;
+  }
+
   if (req.method === "POST" && routePath === "/campaigns") {
+    requireAdmin(req);
     const body = await readJson(req);
     const campaign = createCampaign(body);
     sendJson(res, 201, { campaign });
@@ -91,6 +100,7 @@ async function route(req, res) {
   }
 
   if (req.method === "POST" && routePath === "/creators") {
+    requireAdmin(req);
     const body = await readJson(req);
     const creator = createCreator(body);
     sendJson(res, 201, { creator });
@@ -99,6 +109,7 @@ async function route(req, res) {
 
   const walletChallengeMatch = routePath.match(/^\/creators\/(\d+)\/wallet\/challenge$/);
   if (req.method === "POST" && walletChallengeMatch) {
+    requireAdmin(req);
     const creatorId = Number(walletChallengeMatch[1]);
     const body = await readJson(req);
     const challenge = createWalletChallenge(creatorId, body.walletAddress);
@@ -108,6 +119,7 @@ async function route(req, res) {
 
   const walletBindMatch = routePath.match(/^\/creators\/(\d+)\/wallet\/bind$/);
   if (req.method === "POST" && walletBindMatch) {
+    requireAdmin(req);
     const creatorId = Number(walletBindMatch[1]);
     const body = await readJson(req);
     const creator = await bindWallet(creatorId, body);
@@ -134,6 +146,7 @@ async function route(req, res) {
   }
 
   if (req.method === "POST" && routePath === "/ingest/mock") {
+    requireAdmin(req);
     const body = await readJson(req);
     const result = ingestMockPosts(Number(body.campaignId));
     sendJson(res, 201, result);
@@ -141,6 +154,7 @@ async function route(req, res) {
   }
 
   if (req.method === "POST" && routePath === "/demo/seed") {
+    requireAdmin(req);
     const campaign = ensureDemoCampaign();
     const ingested = ingestMockPosts(campaign.id);
     const scored = runScoringWorker(campaign.id);
@@ -149,6 +163,7 @@ async function route(req, res) {
   }
 
   if (req.method === "POST" && routePath === "/ingest/x") {
+    requireAdmin(req);
     const body = await readJson(req);
     const result = await ingestXPosts(Number(body.campaignId), Number(body.maxResults || 25));
     sendJson(res, 201, result);
@@ -156,6 +171,7 @@ async function route(req, res) {
   }
 
   if (req.method === "POST" && routePath === "/workers/score") {
+    requireAdmin(req);
     const body = await readJson(req);
     const result = runScoringWorker(Number(body.campaignId));
     sendJson(res, 200, result);
@@ -203,7 +219,7 @@ function getProgress() {
   return {
     product: "Proof of Hype",
     tagline: "Verified viral airdrops for Solana meme coin launches.",
-    stage: "Public MVP base",
+    stage: "Production foundation",
     updatedAt: new Date().toISOString(),
     stats,
     milestones: [
@@ -213,10 +229,78 @@ function getProgress() {
       { title: "Mock + X ingestion", status: "done" },
       { title: "Scoring worker", status: "done" },
       { title: "Payout export", status: "done" },
-      { title: "Hosted public beta", status: "next" },
-      { title: "Real Solana holder enrichment", status: "next" }
+      { title: "Admin-protected operations", status: ADMIN_TOKEN ? "done" : "next" },
+      { title: "Real Solana holder enrichment", status: HELIUS_API_KEY ? "done" : "next" }
     ]
   };
+}
+
+function getSetupStatus() {
+  const checks = [
+    {
+      key: "adminToken",
+      label: "Admin token",
+      configured: Boolean(ADMIN_TOKEN),
+      required: true,
+      detail: "Protects campaign creation, ingestion, scoring, and sample data actions."
+    },
+    {
+      key: "xOAuth",
+      label: "X OAuth",
+      configured: Boolean(process.env.X_CLIENT_ID && process.env.X_CLIENT_SECRET && X_CALLBACK_URL),
+      required: true,
+      detail: "Connects creator X accounts for identity and future authenticated features."
+    },
+    {
+      key: "xBearer",
+      label: "X ingestion bearer token",
+      configured: Boolean(process.env.X_BEARER_TOKEN),
+      required: true,
+      detail: "Reads recent X posts for campaign tags, token mints, and launch links."
+    },
+    {
+      key: "solanaProvider",
+      label: "Solana enrichment provider",
+      configured: Boolean(HELIUS_API_KEY || process.env.SOLANA_RPC_URL),
+      required: true,
+      detail: "Checks token mint, holder status, balances, and wallet signals."
+    },
+    {
+      key: "walletStrictMode",
+      label: "Strict wallet verification",
+      configured: !ALLOW_UNVERIFIED_WALLET_BINDING,
+      required: true,
+      detail: "Rejects wallet binding unless a Solana signature verifies."
+    },
+    {
+      key: "database",
+      label: "Persistent database",
+      configured: !IS_PRODUCTION || DB_PATH.includes("/data/") || DB_PATH.includes("\\data\\"),
+      required: true,
+      detail: "SQLite needs a persistent disk on Render; Postgres/Supabase is recommended next."
+    }
+  ];
+
+  return {
+    environment: IS_PRODUCTION ? "production" : "development",
+    publicBaseUrl: PUBLIC_BASE_URL,
+    ready: checks.every((check) => !check.required || check.configured),
+    checks
+  };
+}
+
+function requireAdmin(req) {
+  if (!ADMIN_TOKEN && !IS_PRODUCTION) return;
+  if (!ADMIN_TOKEN && IS_PRODUCTION) throw httpError(503, "admin_token_not_configured");
+
+  const provided = req.headers["x-admin-token"] || bearerToken(req.headers.authorization);
+  if (provided !== ADMIN_TOKEN) throw httpError(401, "admin_token_required");
+}
+
+function bearerToken(header) {
+  if (!header) return "";
+  const match = String(header).match(/^Bearer\s+(.+)$/i);
+  return match ? match[1] : "";
 }
 
 function ensureDemoCampaign() {
@@ -970,9 +1054,18 @@ function sendText(res, status, text, contentType, headers = {}) {
 }
 
 function setCors(res) {
-  res.setHeader("access-control-allow-origin", "*");
+  res.setHeader("access-control-allow-origin", corsOrigin());
   res.setHeader("access-control-allow-methods", "GET,POST,OPTIONS");
-  res.setHeader("access-control-allow-headers", "content-type,authorization");
+  res.setHeader("access-control-allow-headers", "content-type,authorization,x-admin-token");
+}
+
+function corsOrigin() {
+  if (!IS_PRODUCTION) return "*";
+  try {
+    return new URL(PUBLIC_BASE_URL).origin;
+  } catch {
+    return "null";
+  }
 }
 
 function serveStatic(routePath, res) {

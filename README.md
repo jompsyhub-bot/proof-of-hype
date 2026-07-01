@@ -36,7 +36,14 @@ GET /
 GET /app
 GET /docs
 GET /api/progress
+GET /api/setup
 ```
+
+## Production Controls
+
+Set `ADMIN_TOKEN` in production. The operator console sends it as `x-admin-token` for campaign creation, ingestion, scoring, wallet binding, and sample seeding.
+
+Without `ADMIN_TOKEN`, production write routes return `admin_token_not_configured`.
 
 ## Useful Endpoints
 
@@ -136,11 +143,14 @@ For a first public beta, deploy the Docker service and set:
 
 ```text
 PUBLIC_BASE_URL=https://your-domain.example
+ADMIN_TOKEN=generate-a-long-random-secret
 X_CLIENT_ID=
 X_CLIENT_SECRET=
 X_CALLBACK_URL=https://your-domain.example/auth/x/callback
 X_BEARER_TOKEN=
 ALLOW_UNVERIFIED_WALLET_BINDING=false
+HELIUS_API_KEY=
+SOLANA_RPC_URL=
 ```
 
 For real production traffic, move persistence from local SQLite to Postgres/Supabase or attach a persistent volume. SQLite is useful for the first visible base, but not the final multi-user production database.
