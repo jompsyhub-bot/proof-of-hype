@@ -365,7 +365,7 @@
 
       <section class="content">
         <div class="metrics">
-          <div class="metric"><span>Campaigns</span><strong id="mCampaigns">-</strong><em>SQLite live</em></div>
+          <div class="metric"><span>Campaigns</span><strong id="mCampaigns">-</strong><em>Supabase live</em></div>
           <div class="metric"><span>Tracked posts</span><strong id="mPosts">-</strong><em>X-ready</em></div>
           <div class="metric"><span>Payout rows</span><strong id="mPayouts">-</strong><em>SPL export</em></div>
           <div class="metric"><span>Readiness</span><strong id="mReady">-</strong><em id="mReadyText">setup</em></div>
@@ -539,6 +539,10 @@
     }
 
     async function createCampaign() {
+      if (!localStorage.getItem("proofOfHypeSessionToken")) {
+        writeLog("Wallet", "Connect Phantom or Solflare before creating a campaign");
+        return;
+      }
       const form = new FormData(document.querySelector("#campaignForm"));
       const body = Object.fromEntries(form.entries());
       body.rewardPoolRaw = Number(body.rewardPoolRaw);
@@ -551,9 +555,9 @@
     }
 
     async function connectWallet() {
-      const provider = window.solana;
-      if (!provider || !provider.isPhantom) {
-        writeLog("Wallet", "Install or open Phantom");
+      const provider = getWalletProvider();
+      if (!provider) {
+        writeLog("Wallet", "Open this page in Chrome/Brave with Phantom or Solflare installed");
         return;
       }
 
@@ -565,7 +569,7 @@
       const signature = base58Encode(signed.signature);
       const result = await api.post("/auth/wallet/verify", {
         walletAddress,
-        walletProvider: "phantom",
+        walletProvider: provider.walletName,
         message: challenge.message,
         signature,
         signatureEncoding: "base58"
@@ -576,6 +580,20 @@
       document.querySelector("#walletStatus").textContent = shortWallet(walletAddress);
       writeLog("Wallet", `Connected ${shortWallet(walletAddress)}`);
       await refreshAll();
+    }
+
+    function getWalletProvider() {
+      const candidates = [
+        window.phantom?.solana,
+        window.solana?.isPhantom ? window.solana : null,
+        window.solflare?.isSolflare ? window.solflare : null,
+        window.solflare || null
+      ].filter(Boolean);
+
+      const provider = candidates.find((item) => typeof item.connect === "function" && typeof item.signMessage === "function");
+      if (!provider) return null;
+      provider.walletName = provider.isSolflare ? "solflare" : "phantom";
+      return provider;
     }
 
     async function seedDemo() {
