@@ -12,16 +12,22 @@ const DB_PATH = path.resolve(process.cwd(), process.env.DATABASE_PATH || "./data
 const PUBLIC_DIR = path.resolve(__dirname, "../public");
 const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || `http://localhost:${PORT}`;
 const X_CALLBACK_URL = process.env.X_CALLBACK_URL || `${PUBLIC_BASE_URL}/auth/x/callback`;
+const SUPABASE_URL = (process.env.SUPABASE_URL || "").replace(/\/$/, "");
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+const USE_SUPABASE = Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
 const ALLOW_UNVERIFIED_WALLET_BINDING = String(process.env.ALLOW_UNVERIFIED_WALLET_BINDING || "true") === "true";
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "";
 const HELIUS_API_KEY = process.env.HELIUS_API_KEY || "";
 
-fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
-const db = new DatabaseSync(DB_PATH);
-db.exec("PRAGMA journal_mode = WAL");
-db.exec("PRAGMA foreign_keys = ON");
-initDatabase();
+let db = null;
+if (!USE_SUPABASE) {
+  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+  db = new DatabaseSync(DB_PATH);
+  db.exec("PRAGMA journal_mode = WAL");
+  db.exec("PRAGMA foreign_keys = ON");
+  initDatabase();
+}
 
 const server = http.createServer(async (req, res) => {
   try {
@@ -40,11 +46,65 @@ const server = http.createServer(async (req, res) => {
 if (require.main === module) {
   server.listen(PORT, () => {
     console.log(`Proof of Hype backend listening on ${PUBLIC_BASE_URL}`);
-    console.log(`SQLite database: ${DB_PATH}`);
+    console.log(USE_SUPABASE ? "Database: Supabase/Postgres" : `SQLite database: ${DB_PATH}`);
   });
 }
 
 module.exports = { server, db, scorePost, buildPayouts };
+
+async function sbFetch(table, options = {}) {
+  if (!USE_SUPABASE) throw new Error("supabase_not_enabled");
+  const url = new URL(`${SUPABASE_URL}/rest/v1/${table}`);
+  for (const [key, value] of Object.entries(options.query || {})) {
+    url.searchParams.set(key, value);
+  }
+
+  const response = await fetch(url, {
+    method: options.method || "GET",
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE_KEY,
+      authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+      "content-type": "application/json",
+      prefer: options.prefer || "return=representation",
+      ...(options.headers || {})
+    },
+    body: options.body === undefined ? undefined : JSON.stringify(options.body)
+  });
+
+  const text = await response.text();
+  const payload = text ? JSON.parse(text) : null;
+  if (!response.ok) {
+    throw httpError(response.status, "supabase_error", payload || text);
+  }
+  return payload;
+}
+
+async function sbSelectOne(table, query) {
+  const rows = await sbFetch(table, { query: { ...query, limit: "1" } });
+  return rows?.[0] || null;
+}
+
+async function sbInsert(table, body) {
+  const rows = await sbFetch(table, { method: "POST", body });
+  return Array.isArray(rows) ? rows[0] : rows;
+}
+
+async function sbUpdate(table, query, body) {
+  const rows = await sbFetch(table, { method: "PATCH", query, body });
+  return Array.isArray(rows) ? rows[0] : rows;
+}
+
+async function sbDelete(table, query) {
+  return sbFetch(table, { method: "DELETE", query, prefer: "return=minimal" });
+}
+
+function eq(value) {
+  return `eq.${value}`;
+}
+
+function isNull() {
+  return "is.null";
+}
 
 async function route(req, res) {
   setCors(res);
@@ -63,13 +123,15 @@ async function route(req, res) {
       service: "proof-of-hype",
       niche: "solana-meme-coins",
       version: "0.1.0",
-      database: "sqlite"
+      database: USE_SUPABASE ? "supabase" : "sqlite",
+      supabaseConfigured: USE_SUPABASE,
+      build: "supabase-adapter"
     });
     return;
   }
 
   if (req.method === "GET" && routePath === "/api/progress") {
-    sendJson(res, 200, getProgress());
+    sendJson(res, 200, await getProgress());
     return;
   }
 
@@ -79,22 +141,22 @@ async function route(req, res) {
   }
 
   if (req.method === "POST" && routePath === "/campaigns") {
-    const creator = requireSession(req);
+    const creator = await requireSession(req);
     const body = await readJson(req);
-    const campaign = createCampaign(body, creator);
+    const campaign = await createCampaign(body, creator);
     sendJson(res, 201, campaign);
     return;
   }
 
   if (req.method === "GET" && routePath === "/me") {
-    const creator = requireSession(req);
+    const creator = await requireSession(req);
     sendJson(res, 200, { creator });
     return;
   }
 
   if (req.method === "POST" && routePath === "/auth/wallet/challenge") {
     const body = await readJson(req);
-    const challenge = createAuthWalletChallenge(body.walletAddress);
+    const challenge = await createAuthWalletChallenge(body.walletAddress);
     sendJson(res, 201, { challenge });
     return;
   }
@@ -107,14 +169,14 @@ async function route(req, res) {
   }
 
   if (req.method === "GET" && routePath === "/campaigns") {
-    const campaigns = db.prepare("SELECT * FROM campaigns ORDER BY created_at DESC").all().map(formatCampaign);
+    const campaigns = await listCampaigns();
     sendJson(res, 200, { campaigns });
     return;
   }
 
-  const campaignMatch = routePath.match(/^\/campaigns\/(\d+)$/);
+  const campaignMatch = routePath.match(/^\/campaigns\/([^/]+)$/);
   if (req.method === "GET" && campaignMatch) {
-    const campaign = getCampaign(Number(campaignMatch[1]));
+    const campaign = await getCampaign(campaignMatch[1]);
     sendJson(res, 200, { campaign });
     return;
   }
@@ -122,25 +184,25 @@ async function route(req, res) {
   if (req.method === "POST" && routePath === "/creators") {
     requireAdmin(req);
     const body = await readJson(req);
-    const creator = createCreator(body);
+    const creator = await createCreator(body);
     sendJson(res, 201, { creator });
     return;
   }
 
-  const walletChallengeMatch = routePath.match(/^\/creators\/(\d+)\/wallet\/challenge$/);
+  const walletChallengeMatch = routePath.match(/^\/creators\/([^/]+)\/wallet\/challenge$/);
   if (req.method === "POST" && walletChallengeMatch) {
     requireAdmin(req);
-    const creatorId = Number(walletChallengeMatch[1]);
+    const creatorId = walletChallengeMatch[1];
     const body = await readJson(req);
-    const challenge = createWalletChallenge(creatorId, body.walletAddress);
+    const challenge = await createWalletChallenge(creatorId, body.walletAddress);
     sendJson(res, 201, { challenge });
     return;
   }
 
-  const walletBindMatch = routePath.match(/^\/creators\/(\d+)\/wallet\/bind$/);
+  const walletBindMatch = routePath.match(/^\/creators\/([^/]+)\/wallet\/bind$/);
   if (req.method === "POST" && walletBindMatch) {
     requireAdmin(req);
-    const creatorId = Number(walletBindMatch[1]);
+    const creatorId = walletBindMatch[1];
     const body = await readJson(req);
     const creator = await bindWallet(creatorId, body);
     sendJson(res, 200, { creator });
@@ -149,7 +211,7 @@ async function route(req, res) {
 
   if (req.method === "GET" && routePath === "/auth/x/start") {
     const creatorId = Number(url.searchParams.get("creatorId"));
-    const result = startXOAuth(creatorId);
+    const result = await startXOAuth(creatorId);
     if (result.missingConfig) {
       sendJson(res, 200, result);
       return;
@@ -167,54 +229,54 @@ async function route(req, res) {
 
   if (req.method === "POST" && routePath === "/ingest/mock") {
     const body = await readJson(req);
-    requireCampaignAccess(req, Number(body.campaignId));
-    const result = ingestMockPosts(Number(body.campaignId));
+    await requireCampaignAccess(req, body.campaignId);
+    const result = await ingestMockPosts(body.campaignId);
     sendJson(res, 201, result);
     return;
   }
 
   if (req.method === "POST" && routePath === "/demo/seed") {
     requireAdmin(req);
-    const campaign = ensureDemoCampaign();
-    const ingested = ingestMockPosts(campaign.id);
-    const scored = runScoringWorker(campaign.id);
+    const campaign = await ensureDemoCampaign();
+    const ingested = await ingestMockPosts(campaign.id);
+    const scored = await runScoringWorker(campaign.id);
     sendJson(res, 201, { campaign, ingested, scored });
     return;
   }
 
   if (req.method === "POST" && routePath === "/ingest/x") {
     const body = await readJson(req);
-    requireCampaignAccess(req, Number(body.campaignId));
-    const result = await ingestXPosts(Number(body.campaignId), Number(body.maxResults || 25));
+    await requireCampaignAccess(req, body.campaignId);
+    const result = await ingestXPosts(body.campaignId, Number(body.maxResults || 25));
     sendJson(res, 201, result);
     return;
   }
 
   if (req.method === "POST" && routePath === "/workers/score") {
     const body = await readJson(req);
-    requireCampaignAccess(req, Number(body.campaignId));
-    const result = runScoringWorker(Number(body.campaignId));
+    await requireCampaignAccess(req, body.campaignId);
+    const result = await runScoringWorker(body.campaignId);
     sendJson(res, 200, result);
     return;
   }
 
-  const leaderboardMatch = routePath.match(/^\/campaigns\/(\d+)\/leaderboard$/);
+  const leaderboardMatch = routePath.match(/^\/campaigns\/([^/]+)\/leaderboard$/);
   if (req.method === "GET" && leaderboardMatch) {
-    const leaderboard = getLeaderboard(Number(leaderboardMatch[1]));
+    const leaderboard = await getLeaderboard(leaderboardMatch[1]);
     sendJson(res, 200, { leaderboard });
     return;
   }
 
-  const payoutsMatch = routePath.match(/^\/campaigns\/(\d+)\/payouts$/);
+  const payoutsMatch = routePath.match(/^\/campaigns\/([^/]+)\/payouts$/);
   if (req.method === "GET" && payoutsMatch) {
-    const payouts = getPayouts(Number(payoutsMatch[1]));
+    const payouts = await getPayouts(payoutsMatch[1]);
     sendJson(res, 200, { payouts });
     return;
   }
 
-  const payoutsCsvMatch = routePath.match(/^\/campaigns\/(\d+)\/payouts\.csv$/);
+  const payoutsCsvMatch = routePath.match(/^\/campaigns\/([^/]+)\/payouts\.csv$/);
   if (req.method === "GET" && payoutsCsvMatch) {
-    const csv = payoutsCsv(Number(payoutsCsvMatch[1]));
+    const csv = await payoutsCsv(payoutsCsvMatch[1]);
     sendText(res, 200, csv, "text/csv; charset=utf-8", {
       "content-disposition": "attachment; filename=proof-of-hype-payouts.csv"
     });
@@ -228,13 +290,15 @@ async function route(req, res) {
   sendJson(res, 404, { error: "not_found" });
 }
 
-function getProgress() {
-  const stats = {
-    campaigns: db.prepare("SELECT COUNT(*) AS count FROM campaigns").get().count,
-    creators: db.prepare("SELECT COUNT(*) AS count FROM creators").get().count,
-    posts: db.prepare("SELECT COUNT(*) AS count FROM posts").get().count,
-    payouts: db.prepare("SELECT COUNT(*) AS count FROM payouts").get().count
-  };
+async function getProgress() {
+  const stats = USE_SUPABASE
+    ? await getSupabaseCounts()
+    : {
+        campaigns: db.prepare("SELECT COUNT(*) AS count FROM campaigns").get().count,
+        creators: db.prepare("SELECT COUNT(*) AS count FROM creators").get().count,
+        posts: db.prepare("SELECT COUNT(*) AS count FROM posts").get().count,
+        payouts: db.prepare("SELECT COUNT(*) AS count FROM payouts").get().count
+      };
 
   return {
     product: "Proof of Hype",
@@ -253,6 +317,24 @@ function getProgress() {
       { title: "Real Solana holder enrichment", status: HELIUS_API_KEY ? "done" : "next" }
     ]
   };
+}
+
+async function getSupabaseCounts() {
+  const counts = {};
+  for (const table of ["campaigns", "creators", "posts", "payouts"]) {
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=id`, {
+      method: "HEAD",
+      headers: {
+        apikey: SUPABASE_SERVICE_ROLE_KEY,
+        authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        prefer: "count=exact"
+      }
+    });
+    if (!response.ok) throw httpError(response.status, "supabase_count_error", table);
+    const range = response.headers.get("content-range") || "*/0";
+    counts[table] = Number(range.split("/")[1] || 0);
+  }
+  return counts;
 }
 
 function getSetupStatus() {
@@ -324,15 +406,25 @@ function requireAdmin(req) {
   if (provided !== ADMIN_TOKEN) throw httpError(401, "admin_token_required");
 }
 
-function requireSession(req) {
-  const creator = getSessionCreator(req);
+async function requireSession(req) {
+  const creator = await getSessionCreator(req);
   if (!creator) throw httpError(401, "wallet_session_required");
   return creator;
 }
 
-function getSessionCreator(req) {
+async function getSessionCreator(req) {
   const token = bearerToken(req.headers.authorization);
   if (!token) return null;
+
+  if (USE_SUPABASE) {
+    const session = await sbSelectOne("sessions", {
+      token_hash: eq(hashToken(token)),
+      revoked_at: isNull(),
+      select: "*"
+    });
+    if (!session || new Date(session.expires_at).getTime() <= Date.now()) return null;
+    return await getCreator(session.creator_id);
+  }
 
   const row = db.prepare(`
     SELECT c.*
@@ -345,15 +437,17 @@ function getSessionCreator(req) {
   return row ? formatCreator(row) : null;
 }
 
-function requireCampaignAccess(req, campaignId) {
+async function requireCampaignAccess(req, campaignId) {
   if (!campaignId) throw httpError(400, "campaign_id_required");
 
   const adminProvided = req.headers["x-admin-token"] || bearerToken(req.headers.authorization);
   if (ADMIN_TOKEN && adminProvided === ADMIN_TOKEN) return;
 
-  const sessionCreator = getSessionCreator(req);
+  const sessionCreator = await getSessionCreator(req);
   if (sessionCreator) {
-    const row = db.prepare("SELECT creator_id FROM campaigns WHERE id = ?").get(campaignId);
+    const row = USE_SUPABASE
+      ? await sbSelectOne("campaigns", { id: eq(campaignId), select: "creator_id" })
+      : db.prepare("SELECT creator_id FROM campaigns WHERE id = ?").get(campaignId);
     if (!row) throw httpError(404, "campaign_not_found");
     if (row.creator_id && row.creator_id === sessionCreator.id) return;
   }
@@ -361,7 +455,9 @@ function requireCampaignAccess(req, campaignId) {
   const campaignToken = req.headers["x-campaign-token"];
   if (!campaignToken) throw httpError(401, "campaign_token_required");
 
-  const row = db.prepare("SELECT owner_token_hash FROM campaigns WHERE id = ?").get(campaignId);
+  const row = USE_SUPABASE
+    ? await sbSelectOne("campaigns", { id: eq(campaignId), select: "owner_token_hash" })
+    : db.prepare("SELECT owner_token_hash FROM campaigns WHERE id = ?").get(campaignId);
   if (!row) throw httpError(404, "campaign_not_found");
   if (!row.owner_token_hash) throw httpError(401, "campaign_token_not_available");
   if (!safeEqual(row.owner_token_hash, hashToken(campaignToken))) {
@@ -392,11 +488,16 @@ function addColumnIfMissing(table, column, definition) {
 }
 
 
-function ensureDemoCampaign() {
-  const existing = db.prepare("SELECT * FROM campaigns WHERE tag = ? ORDER BY id DESC LIMIT 1").get("$WAGMI");
-  if (existing) return formatCampaign(existing);
+async function ensureDemoCampaign() {
+  if (USE_SUPABASE) {
+    const existing = await sbSelectOne("campaigns", { tag: "eq.$WAGMI", select: "*", order: "created_at.desc" });
+    if (existing) return formatCampaign(existing);
+  } else {
+    const existing = db.prepare("SELECT * FROM campaigns WHERE tag = ? ORDER BY id DESC LIMIT 1").get("$WAGMI");
+    if (existing) return formatCampaign(existing);
+  }
 
-  return createCampaign({
+  const result = await createCampaign({
     name: "$WAGMI launch raid",
     tag: "$WAGMI",
     tokenMint: "WAGM1meme9xPumpExampleMintAddr7QFvR2",
@@ -404,7 +505,8 @@ function ensureDemoCampaign() {
     rewardPoolRaw: 420000000,
     ownerWallet: "SoLDeployerWalletExample",
     status: "live"
-  }).campaign;
+  }, { id: null, walletAddress: "SoLDeployerWalletExample" });
+  return result.campaign;
 }
 
 function initDatabase() {
@@ -535,7 +637,7 @@ function initDatabase() {
   addColumnIfMissing("campaigns", "creator_id", "INTEGER REFERENCES creators(id) ON DELETE SET NULL");
 }
 
-function createCampaign(body, creator = null) {
+async function createCampaign(body, creator = null) {
   const now = new Date();
   const startAt = body.startAt || now.toISOString();
   const endAt = body.endAt || new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -545,6 +647,24 @@ function createCampaign(body, creator = null) {
   requireFields(body, ["name", "tag", "tokenMint", "rewardPoolRaw"]);
   const ownerWallet = creator?.walletAddress || body.ownerWallet;
   if (!ownerWallet) throw httpError(400, "owner_wallet_required");
+
+  if (USE_SUPABASE) {
+    const row = await sbInsert("campaigns", {
+      creator_id: creator?.id || null,
+      owner_wallet: ownerWallet,
+      owner_token_hash: ownerTokenHash,
+      name: body.name,
+      tag: normalizeTag(body.tag),
+      token_mint: body.tokenMint,
+      launch_venue: body.launchVenue || "Pump.fun",
+      dex_pool_address: body.dexPoolAddress || null,
+      reward_pool_raw: Number(body.rewardPoolRaw),
+      start_at: startAt,
+      end_at: endAt,
+      status: body.status || "live"
+    });
+    return { campaign: formatCampaign(row), ownerToken };
+  }
 
   const result = db.prepare(`
     INSERT INTO campaigns (creator_id, owner_wallet, owner_token_hash, name, tag, token_mint, launch_venue, dex_pool_address, reward_pool_raw, start_at, end_at, status)
@@ -565,12 +685,27 @@ function createCampaign(body, creator = null) {
   );
 
   return {
-    campaign: getCampaign(result.lastInsertRowid),
+    campaign: await getCampaign(result.lastInsertRowid),
     ownerToken
   };
 }
 
-function getCampaign(id) {
+async function listCampaigns() {
+  if (USE_SUPABASE) {
+    const rows = await sbFetch("campaigns", {
+      query: { select: "*", order: "created_at.desc" }
+    });
+    return rows.map(formatCampaign);
+  }
+  return db.prepare("SELECT * FROM campaigns ORDER BY created_at DESC").all().map(formatCampaign);
+}
+
+async function getCampaign(id) {
+  if (USE_SUPABASE) {
+    const row = await sbSelectOne("campaigns", { id: eq(id), select: "*" });
+    if (!row) throw httpError(404, "campaign_not_found");
+    return formatCampaign(row);
+  }
   const row = db.prepare("SELECT * FROM campaigns WHERE id = ?").get(id);
   if (!row) throw httpError(404, "campaign_not_found");
   return formatCampaign(row);
@@ -595,7 +730,18 @@ function formatCampaign(row) {
   };
 }
 
-function createCreator(body) {
+async function createCreator(body) {
+  if (USE_SUPABASE) {
+    const row = await sbInsert("creators", {
+      x_user_id: body.xUserId || null,
+      x_handle: cleanHandle(body.xHandle || null),
+      x_display_name: body.xDisplayName || null,
+      x_verified: Boolean(body.xVerified),
+      trust_score: Number(body.trustScore || 50)
+    });
+    return formatCreator(row);
+  }
+
   const result = db.prepare(`
     INSERT INTO creators (x_user_id, x_handle, x_display_name, x_verified, trust_score)
     VALUES (?, ?, ?, ?, ?)
@@ -606,10 +752,10 @@ function createCreator(body) {
     body.xVerified ? 1 : 0,
     Number(body.trustScore || 50)
   );
-  return getCreator(result.lastInsertRowid);
+  return await getCreator(result.lastInsertRowid);
 }
 
-function createAuthWalletChallenge(walletAddress) {
+async function createAuthWalletChallenge(walletAddress) {
   if (!walletAddress) throw httpError(400, "wallet_address_required");
 
   const nonce = crypto.randomBytes(20).toString("hex");
@@ -620,6 +766,16 @@ function createAuthWalletChallenge(walletAddress) {
     `Nonce: ${nonce}`,
     `Expires: ${expiresAt}`
   ].join("\n");
+
+  if (USE_SUPABASE) {
+    await sbInsert("wallet_auth_challenges", {
+      wallet_address: walletAddress,
+      nonce,
+      message,
+      expires_at: expiresAt
+    });
+    return { walletAddress, nonce, message, expiresAt };
+  }
 
   db.prepare(`
     INSERT INTO wallet_auth_challenges (wallet_address, nonce, message, expires_at)
@@ -632,12 +788,20 @@ function createAuthWalletChallenge(walletAddress) {
 async function verifyWalletAuth(body) {
   requireFields(body, ["walletAddress", "message"]);
 
-  const challenge = db.prepare(`
-    SELECT * FROM wallet_auth_challenges
-    WHERE wallet_address = ? AND message = ? AND used_at IS NULL
-    ORDER BY created_at DESC
-    LIMIT 1
-  `).get(body.walletAddress, body.message);
+  const challenge = USE_SUPABASE
+    ? await sbSelectOne("wallet_auth_challenges", {
+        wallet_address: eq(body.walletAddress),
+        message: eq(body.message),
+        used_at: isNull(),
+        select: "*",
+        order: "created_at.desc"
+      })
+    : db.prepare(`
+        SELECT * FROM wallet_auth_challenges
+        WHERE wallet_address = ? AND message = ? AND used_at IS NULL
+        ORDER BY created_at DESC
+        LIMIT 1
+      `).get(body.walletAddress, body.message);
 
   if (!challenge) throw httpError(400, "wallet_auth_challenge_not_found");
   if (new Date(challenge.expires_at).getTime() < Date.now()) throw httpError(400, "wallet_auth_challenge_expired");
@@ -651,14 +815,37 @@ async function verifyWalletAuth(body) {
 
   if (!verified) throw httpError(400, "wallet_signature_invalid");
 
-  db.prepare("UPDATE wallet_auth_challenges SET used_at = CURRENT_TIMESTAMP WHERE id = ?").run(challenge.id);
-  const creator = upsertCreatorByWallet(body.walletAddress, body.walletProvider || "phantom");
-  const session = createSession(creator.id);
+  if (USE_SUPABASE) {
+    await sbUpdate("wallet_auth_challenges", { id: eq(challenge.id) }, { used_at: new Date().toISOString() });
+  } else {
+    db.prepare("UPDATE wallet_auth_challenges SET used_at = CURRENT_TIMESTAMP WHERE id = ?").run(challenge.id);
+  }
+  const creator = await upsertCreatorByWallet(body.walletAddress, body.walletProvider || "phantom");
+  const session = await createSession(creator.id);
 
   return { creator, session };
 }
 
-function upsertCreatorByWallet(walletAddress, walletProvider) {
+async function upsertCreatorByWallet(walletAddress, walletProvider) {
+  if (USE_SUPABASE) {
+    const existing = await sbSelectOne("creators", { wallet_address: eq(walletAddress), select: "*" });
+    if (existing) {
+      const row = await sbUpdate("creators", { id: eq(existing.id) }, {
+        wallet_provider: walletProvider,
+        wallet_verified_at: existing.wallet_verified_at || new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
+      return formatCreator(row || existing);
+    }
+    const row = await sbInsert("creators", {
+      wallet_address: walletAddress,
+      wallet_provider: walletProvider,
+      wallet_verified_at: new Date().toISOString(),
+      trust_score: 50
+    });
+    return formatCreator(row);
+  }
+
   const existing = db.prepare("SELECT * FROM creators WHERE wallet_address = ?").get(walletAddress);
   if (existing) {
     db.prepare(`
@@ -666,7 +853,7 @@ function upsertCreatorByWallet(walletAddress, walletProvider) {
       SET wallet_provider = ?, wallet_verified_at = COALESCE(wallet_verified_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(walletProvider, existing.id);
-    return getCreator(existing.id);
+    return await getCreator(existing.id);
   }
 
   const result = db.prepare(`
@@ -674,13 +861,22 @@ function upsertCreatorByWallet(walletAddress, walletProvider) {
     VALUES (?, ?, CURRENT_TIMESTAMP, 50)
   `).run(walletAddress, walletProvider);
 
-  return getCreator(result.lastInsertRowid);
+  return await getCreator(result.lastInsertRowid);
 }
 
-function createSession(creatorId) {
+async function createSession(creatorId) {
   const token = crypto.randomBytes(32).toString("base64url");
   const tokenHash = hashToken(token);
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+  if (USE_SUPABASE) {
+    await sbInsert("sessions", {
+      creator_id: creatorId,
+      token_hash: tokenHash,
+      expires_at: expiresAt
+    });
+    return { token, expiresAt };
+  }
 
   db.prepare(`
     INSERT INTO sessions (creator_id, token_hash, expires_at)
@@ -690,10 +886,24 @@ function createSession(creatorId) {
   return { token, expiresAt };
 }
 
-function getCreator(id) {
+async function getCreator(id) {
+  if (USE_SUPABASE) {
+    const row = await sbSelectOne("creators", { id: eq(id), select: "*" });
+    if (!row) throw httpError(404, "creator_not_found");
+    return formatCreator(row);
+  }
   const row = db.prepare("SELECT * FROM creators WHERE id = ?").get(id);
   if (!row) throw httpError(404, "creator_not_found");
   return formatCreator(row);
+}
+
+async function findCreatorByHandle(handle) {
+  if (!handle) return null;
+  if (USE_SUPABASE) {
+    const row = await sbSelectOne("creators", { x_handle: eq(handle), select: "*" });
+    return row ? formatCreator(row) : null;
+  }
+  return db.prepare("SELECT * FROM creators WHERE lower(x_handle) = lower(?)").get(handle);
 }
 
 function formatCreator(row) {
@@ -713,8 +923,8 @@ function formatCreator(row) {
   };
 }
 
-function createWalletChallenge(creatorId, walletAddress) {
-  getCreator(creatorId);
+async function createWalletChallenge(creatorId, walletAddress) {
+  await getCreator(creatorId);
   if (!walletAddress) throw httpError(400, "wallet_address_required");
 
   const nonce = crypto.randomBytes(20).toString("hex");
@@ -736,7 +946,7 @@ function createWalletChallenge(creatorId, walletAddress) {
 }
 
 async function bindWallet(creatorId, body) {
-  getCreator(creatorId);
+  await getCreator(creatorId);
   requireFields(body, ["walletAddress", "message"]);
 
   const challenge = db.prepare(`
@@ -765,12 +975,12 @@ async function bindWallet(creatorId, body) {
     WHERE id = ?
   `).run(body.walletAddress, body.walletProvider || "phantom", creatorId);
 
-  return getCreator(creatorId);
+  return await getCreator(creatorId);
 }
 
-function startXOAuth(creatorId) {
+async function startXOAuth(creatorId) {
   if (!creatorId) throw httpError(400, "creator_id_required");
-  getCreator(creatorId);
+  await getCreator(creatorId);
 
   const state = crypto.randomBytes(24).toString("base64url");
   const codeVerifier = crypto.randomBytes(48).toString("base64url");
@@ -849,11 +1059,11 @@ async function handleXCallback(searchParams) {
   );
 
   db.prepare("UPDATE x_oauth_states SET used_at = CURRENT_TIMESTAMP WHERE state = ?").run(state);
-  return { creator: getCreator(oauthState.creator_id), xUser: user };
+  return { creator: await getCreator(oauthState.creator_id), xUser: user };
 }
 
-function ingestMockPosts(campaignId) {
-  const campaign = getCampaign(campaignId);
+async function ingestMockPosts(campaignId) {
+  const campaign = await getCampaign(campaignId);
   const samples = [
     ["solraid", `This ${campaign.tag} chart is pure Solana chaos. CA ${campaign.tokenMint}`, 982000, 28000, 8200, 3100, 1800],
     ["pumpsignal", `${campaign.tag} just hit the timeline like a proper Pump.fun send. ${campaign.tokenMint}`, 741000, 21000, 6400, 1900, 1200],
@@ -878,14 +1088,14 @@ function ingestMockPosts(campaignId) {
       replies,
       quotes
     };
-    created += upsertPost(campaign, post) ? 1 : 0;
+    created += await upsertPost(campaign, post) ? 1 : 0;
   }
 
   return { campaignId, created, total: samples.length };
 }
 
 async function ingestXPosts(campaignId, maxResults) {
-  const campaign = getCampaign(campaignId);
+  const campaign = await getCampaign(campaignId);
   if (!process.env.X_BEARER_TOKEN) throw httpError(400, "x_bearer_token_required");
 
   const query = `(${campaign.tag} OR "${campaign.tokenMint}") -is:retweet lang:en`;
@@ -921,19 +1131,45 @@ async function ingestXPosts(campaignId, maxResults) {
       replies: Number(metrics.reply_count || 0),
       quotes: Number(metrics.quote_count || 0)
     };
-    created += upsertPost(campaign, post) ? 1 : 0;
+    created += await upsertPost(campaign, post) ? 1 : 0;
   }
 
   return { campaignId, query, fetched: payload.data?.length || 0, created };
 }
 
-function upsertPost(campaign, post) {
+async function upsertPost(campaign, post) {
   const textHash = crypto.createHash("sha256").update(normalizeText(post.text)).digest("hex");
-  const containsTokenMint = post.text.includes(campaign.tokenMint) ? 1 : 0;
-  const containsLaunchLink = /pump\.fun|raydium|meteora|dexscreener/i.test(post.text) ? 1 : 0;
-  const creator = post.authorHandle
-    ? db.prepare("SELECT * FROM creators WHERE lower(x_handle) = lower(?)").get(cleanHandle(post.authorHandle))
-    : null;
+  const containsTokenMint = post.text.includes(campaign.tokenMint);
+  const containsLaunchLink = /pump\.fun|raydium|meteora|dexscreener/i.test(post.text);
+  const creator = post.authorHandle ? await findCreatorByHandle(cleanHandle(post.authorHandle)) : null;
+
+  if (USE_SUPABASE) {
+    const rows = await sbFetch("posts", {
+      method: "POST",
+      query: { on_conflict: "campaign_id,platform,platform_post_id" },
+      prefer: "resolution=merge-duplicates,return=representation",
+      body: {
+        campaign_id: campaign.id,
+        creator_id: creator?.id || null,
+        platform: "x",
+        platform_post_id: post.platformPostId,
+        author_id: post.authorId || null,
+        author_handle: cleanHandle(post.authorHandle),
+        post_url: post.postUrl || null,
+        text: post.text,
+        text_hash: textHash,
+        contains_token_mint: containsTokenMint,
+        contains_launch_link: containsLaunchLink,
+        views: Number(post.views || 0),
+        likes: Number(post.likes || 0),
+        reposts: Number(post.reposts || 0),
+        replies: Number(post.replies || 0),
+        quotes: Number(post.quotes || 0),
+        captured_at: new Date().toISOString()
+      }
+    });
+    return Boolean(rows?.length);
+  }
 
   const result = db.prepare(`
     INSERT INTO posts (
@@ -957,8 +1193,8 @@ function upsertPost(campaign, post) {
     post.postUrl || null,
     post.text,
     textHash,
-    containsTokenMint,
-    containsLaunchLink,
+    containsTokenMint ? 1 : 0,
+    containsLaunchLink ? 1 : 0,
     Number(post.views || 0),
     Number(post.likes || 0),
     Number(post.reposts || 0),
@@ -969,43 +1205,56 @@ function upsertPost(campaign, post) {
   return result.changes > 0;
 }
 
-function runScoringWorker(campaignId) {
-  const campaign = getCampaign(campaignId);
-  const posts = db.prepare("SELECT * FROM posts WHERE campaign_id = ?").all(campaignId);
+async function runScoringWorker(campaignId) {
+  const campaign = await getCampaign(campaignId);
+  const posts = await getPostsForCampaign(campaignId);
   const duplicateCounts = countBy(posts, "text_hash");
 
   for (const post of posts) {
-    const creator = post.creator_id ? db.prepare("SELECT * FROM creators WHERE id = ?").get(post.creator_id) : null;
+    const creator = post.creator_id ? await getCreator(post.creator_id) : null;
     const scored = scorePost(post, creator, duplicateCounts.get(post.text_hash) || 1);
-    db.prepare(`
-      UPDATE posts
-      SET score = ?, risk_level = ?, risk_reasons = ?
-      WHERE id = ?
-    `).run(scored.score, scored.riskLevel, JSON.stringify(scored.riskReasons), post.id);
+    await updatePostScore(post.id, scored);
   }
 
-  const updatedPosts = db.prepare("SELECT * FROM posts WHERE campaign_id = ? ORDER BY score DESC").all(campaignId);
-  const payouts = buildPayouts(campaign, updatedPosts);
-
-  db.prepare("DELETE FROM payouts WHERE campaign_id = ?").run(campaignId);
-  for (const payout of payouts) {
-    db.prepare(`
-      INSERT INTO payouts (campaign_id, creator_id, wallet_address, author_handle, rank, score, amount_raw, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
-    `).run(
-      campaignId,
-      payout.creatorId,
-      payout.walletAddress,
-      payout.authorHandle,
-      payout.rank,
-      payout.score,
-      payout.amountRaw
-    );
-  }
-
-  db.prepare("INSERT INTO scoring_runs (campaign_id, post_count) VALUES (?, ?)").run(campaignId, posts.length);
+  const updatedPosts = await getPostsForCampaign(campaignId, true);
+  const payouts = await buildPayouts(campaign, updatedPosts);
+  await replacePayouts(campaignId, payouts);
+  if (!USE_SUPABASE) db.prepare("INSERT INTO scoring_runs (campaign_id, post_count) VALUES (?, ?)").run(campaignId, posts.length);
 
   return { campaignId, scoredPosts: posts.length, payouts: payouts.length };
+}
+
+async function getPostsForCampaign(campaignId, sorted = false) {
+  if (USE_SUPABASE) {
+    const rows = await sbFetch("posts", {
+      query: {
+        campaign_id: eq(campaignId),
+        select: "*",
+        order: sorted ? "score.desc" : "captured_at.asc"
+      }
+    });
+    return rows;
+  }
+  const sql = sorted
+    ? "SELECT * FROM posts WHERE campaign_id = ? ORDER BY score DESC"
+    : "SELECT * FROM posts WHERE campaign_id = ?";
+  return db.prepare(sql).all(campaignId);
+}
+
+async function updatePostScore(postId, scored) {
+  if (USE_SUPABASE) {
+    await sbUpdate("posts", { id: eq(postId) }, {
+      score: scored.score,
+      risk_level: scored.riskLevel,
+      risk_reasons: scored.riskReasons
+    });
+    return;
+  }
+  db.prepare(`
+    UPDATE posts
+    SET score = ?, risk_level = ?, risk_reasons = ?
+    WHERE id = ?
+  `).run(scored.score, scored.riskLevel, JSON.stringify(scored.riskReasons), postId);
 }
 
 function scorePost(post, creator, duplicateCount) {
@@ -1062,7 +1311,7 @@ function scorePost(post, creator, duplicateCount) {
   };
 }
 
-function buildPayouts(campaign, posts) {
+async function buildPayouts(campaign, posts) {
   const bestByAuthor = new Map();
   for (const post of posts) {
     const author = post.author_handle || `unknown-${post.id}`;
@@ -1075,21 +1324,87 @@ function buildPayouts(campaign, posts) {
     .sort((a, b) => b.score - a.score);
 
   const totalScore = ranked.reduce((sum, post) => sum + post.score, 0) || 1;
-  return ranked.map((post, index) => {
-    const creator = post.creator_id ? db.prepare("SELECT * FROM creators WHERE id = ?").get(post.creator_id) : null;
-    return {
+  const payouts = [];
+  for (const [index, post] of ranked.entries()) {
+    const creator = post.creator_id ? await getCreator(post.creator_id) : null;
+    payouts.push({
       rank: index + 1,
       creatorId: post.creator_id,
-      walletAddress: creator?.wallet_address || null,
+      walletAddress: creator?.wallet_address || creator?.walletAddress || null,
       authorHandle: post.author_handle,
       score: post.score,
-      amountRaw: Math.floor((post.score / totalScore) * campaign.rewardPoolRaw)
-    };
-  });
+      amountRaw: Math.floor((post.score / totalScore) * Number(campaign.rewardPoolRaw))
+    });
+  }
+  return payouts;
 }
 
-function getLeaderboard(campaignId) {
-  getCampaign(campaignId);
+async function replacePayouts(campaignId, payouts) {
+  if (USE_SUPABASE) {
+    await sbDelete("payouts", { campaign_id: eq(campaignId) });
+    if (!payouts.length) return;
+    await sbFetch("payouts", {
+      method: "POST",
+      body: payouts.map((payout) => ({
+        campaign_id: campaignId,
+        creator_id: payout.creatorId || null,
+        wallet_address: payout.walletAddress || null,
+        author_handle: payout.authorHandle,
+        rank: payout.rank,
+        score: payout.score,
+        amount_raw: payout.amountRaw,
+        status: "pending"
+      }))
+    });
+    return;
+  }
+
+  db.prepare("DELETE FROM payouts WHERE campaign_id = ?").run(campaignId);
+  for (const payout of payouts) {
+    db.prepare(`
+      INSERT INTO payouts (campaign_id, creator_id, wallet_address, author_handle, rank, score, amount_raw, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
+    `).run(
+      campaignId,
+      payout.creatorId,
+      payout.walletAddress,
+      payout.authorHandle,
+      payout.rank,
+      payout.score,
+      payout.amountRaw
+    );
+  }
+}
+
+async function getLeaderboard(campaignId) {
+  await getCampaign(campaignId);
+  if (USE_SUPABASE) {
+    const posts = await getPostsForCampaign(campaignId, true);
+    const rows = [];
+    for (const post of posts) {
+      const creator = post.creator_id ? await getCreator(post.creator_id) : null;
+      rows.push({
+        authorHandle: post.author_handle,
+        postUrl: post.post_url,
+        views: post.views,
+        likes: post.likes,
+        reposts: post.reposts,
+        replies: post.replies,
+        quotes: post.quotes,
+        score: post.score,
+        riskLevel: post.risk_level,
+        riskReasons: Array.isArray(post.risk_reasons) ? post.risk_reasons : [],
+        walletAddress: creator?.walletAddress || null,
+        walletVerifiedAt: creator?.walletVerifiedAt || null
+      });
+    }
+    return rows.map((row, index) => ({
+      rank: index + 1,
+      ...row,
+      walletVerified: Boolean(row.walletVerifiedAt)
+    }));
+  }
+
   return db.prepare(`
     SELECT
       p.author_handle AS authorHandle,
@@ -1116,8 +1431,26 @@ function getLeaderboard(campaignId) {
   }));
 }
 
-function getPayouts(campaignId) {
-  getCampaign(campaignId);
+async function getPayouts(campaignId) {
+  await getCampaign(campaignId);
+  if (USE_SUPABASE) {
+    const rows = await sbFetch("payouts", {
+      query: {
+        campaign_id: eq(campaignId),
+        select: "rank,author_handle,wallet_address,score,amount_raw,status",
+        order: "rank.asc"
+      }
+    });
+    return rows.map((row) => ({
+      rank: row.rank,
+      authorHandle: row.author_handle,
+      walletAddress: row.wallet_address,
+      score: row.score,
+      amountRaw: row.amount_raw,
+      status: row.status
+    }));
+  }
+
   return db.prepare(`
     SELECT rank, author_handle AS authorHandle, wallet_address AS walletAddress, score, amount_raw AS amountRaw, status
     FROM payouts
@@ -1126,8 +1459,8 @@ function getPayouts(campaignId) {
   `).all(campaignId);
 }
 
-function payoutsCsv(campaignId) {
-  const rows = getPayouts(campaignId);
+async function payoutsCsv(campaignId) {
+  const rows = await getPayouts(campaignId);
   const header = ["rank", "author_handle", "wallet_address", "score", "amount_raw", "status"];
   const lines = rows.map((row) => [
     row.rank,
